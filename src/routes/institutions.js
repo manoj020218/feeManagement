@@ -1,0 +1,118 @@
+// src/routes/institutions.js
+// POST /api/institutions/publish  — admin publishes/updates an institution to the member directory
+// GET  /api/institutions/lookup/:code — public: member looks up institution by invite code
+// DELETE /api/institutions/:code — admin unpublishes their institution
+const express = require('express');
+const InstitutionRegistry = require('../models/InstitutionRegistry');
+const { requireAuth } = require('../middleware/auth');
+
+const router = express.Router();
+
+// POST /api/institutions/publish  (auth required)
+router.post('/publish', requireAuth, async (req, res) => {
+  try {
+    const { inviteCode, name, type, address = '', plans = [] } = req.body;
+
+    if (!inviteCode || !name || !type) {
+      return res.status(400).json({ error: 'inviteCode, name and type are required' });
+    }
+    if (inviteCode.length < 4 || inviteCode.length > 12) {
+      return res.status(400).json({ error: 'inviteCode must be 4–12 characters' });
+    }
+
+    const admin = req.user;
+
+    // Check if another admin already owns this code
+    const existing = await InstitutionRegistry.findOne({ inviteCode: inviteCode.toUpperCase() });
+    if (existing && existing.adminUserId !== String(admin._id)) {
+      return res.status(409).json({ error: 'This invite code is already taken by another institution' });
+    }
+
+    const doc = await InstitutionRegistry.findOneAndUpdate(
+      { inviteCode: inviteCode.toUpperCase() },
+      {
+        inviteCode: inviteCode.toUpperCase(),
+        name:        name.trim(),
+        type,
+        address:     address.trim(),
+        adminUserId: String(admin._id),
+        adminName:   admin.name,
+        adminPhone:  admin.phone ?? null,
+        plans,
+        updatedAt:   new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    res.json({ ok: true, registry: doc });
+  } catch (err) {
+    console.error('Publish error:', err);
+    res.status(500).json({ error: 'Failed to publish institution' });
+  }
+});
+
+// GET /api/institutions/lookup/:code  (public — no auth needed)
+router.get('/lookup/:code', async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase().trim();
+    const doc = await InstitutionRegistry.findOne({ inviteCode: code });
+    if (!doc) {
+      return res.status(404).json({ error: 'Institution not found. Check the invite code.' });
+    }
+    res.json({
+      inviteCode:  doc.inviteCode,
+      name:        doc.name,
+      type:        doc.type,
+      address:     doc.address,
+      adminName:   doc.adminName,
+      adminPhone:  doc.adminPhone,
+      plans:       doc.plans,
+    });
+  } catch (err) {
+    console.error('Lookup error:', err);
+    res.status(500).json({ error: 'Lookup failed' });
+  }
+});
+
+// PUT /api/institutions/:code  — admin updates institute profile (description, logo, achievements)
+router.put('/:code', requireAuth, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const doc  = await InstitutionRegistry.findOne({ inviteCode: code });
+    if (!doc) return res.status(404).json({ error: 'Institution not found' });
+    if (doc.adminUserId !== String(req.user._id)) {
+      return res.status(403).json({ error: 'Not your institution' });
+    }
+    const { name, address, description, logo, achievements, plans } = req.body;
+    if (name)                    doc.name         = name.trim();
+    if (address !== undefined)   doc.address      = address.trim();
+    if (description !== undefined) doc.description = description.slice(0, 500);
+    if (logo !== undefined)      doc.logo         = logo || null;
+    if (Array.isArray(achievements)) doc.achievements = achievements.slice(0, 10);
+    if (Array.isArray(plans))    doc.plans        = plans;
+    doc.updatedAt = new Date();
+    await doc.save();
+    res.json({ ok: true, registry: doc });
+  } catch (err) {
+    console.error('Update institution error:', err);
+    res.status(500).json({ error: 'Update failed' });
+  }
+});
+
+// DELETE /api/institutions/:code  (auth required — admin removes their listing)
+router.delete('/:code', requireAuth, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const doc = await InstitutionRegistry.findOne({ inviteCode: code });
+    if (!doc) return res.status(404).json({ error: 'Not found' });
+    if (doc.adminUserId !== String(req.user._id)) {
+      return res.status(403).json({ error: 'Not your institution' });
+    }
+    await doc.deleteOne();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to remove listing' });
+  }
+});
+
+module.exports = router;

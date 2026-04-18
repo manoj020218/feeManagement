@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>FeeFlow — Asset Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800;900&family=Lora:wght@600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0c10;color:#e8eaf0;font-family:'Outfit',sans-serif;padding:32px}
+h1{font-family:'Lora',serif;color:#4f8eff;font-size:1.8rem;margin-bottom:6px}
+.sub{color:#6b7490;font-size:.85rem;margin-bottom:32px}
+h2{font-size:1rem;font-weight:800;color:#9ca1b0;margin:28px 0 14px;text-transform:uppercase;letter-spacing:.08em}
+.grid{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;margin-bottom:8px}
+.thumb{text-align:center}
+.thumb canvas{display:block;border-radius:12px;border:1px solid #252a38}
+.thumb .lbl{font-size:.65rem;color:#6b7490;margin-top:6px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:12px;background:#4f8eff;color:#fff;font-weight:700;font-size:.85rem;border:none;cursor:pointer;margin-top:8px;font-family:inherit}
+.btn:hover{background:#3a7aff}
+.btn.g{background:#1a2535;border:1px solid #252a38;color:#9ca1b0}
+.btn.g:hover{background:#252a38;color:#e8eaf0}
+.section{background:#111318;border:1px solid #1e2433;border-radius:18px;padding:24px;margin-bottom:24px}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+.status{font-size:.78rem;color:#2dd4a0;margin-top:8px;min-height:20px}
+</style>
+</head>
+<body>
+<h1>FeeFlow — Asset Generator</h1>
+<p class="sub">Generates all Android icons, adaptive layers, Play Store icon, and splash screens. Open in Chrome → Download All.</p>
+
+<div class="section">
+  <h2>Preview — App Icon</h2>
+  <div class="grid" id="iconPreviews"></div>
+  <div class="row">
+    <button class="btn" onclick="downloadAllIcons()">⬇ Download All Icons (mipmap)</button>
+    <button class="btn g" onclick="downloadPlayStore()">⬇ Play Store 512×512</button>
+    <button class="btn g" onclick="downloadAdaptive()">⬇ Adaptive Layers (foreground + bg)</button>
+  </div>
+  <div class="status" id="iconStatus"></div>
+</div>
+
+<div class="section">
+  <h2>Preview — Splash Screen</h2>
+  <div class="grid" id="splashPreviews"></div>
+  <div class="row">
+    <button class="btn" onclick="downloadAllSplash()">⬇ Download All Splash Screens</button>
+  </div>
+  <div class="status" id="splashStatus"></div>
+</div>
+
+<div class="section">
+  <h2>How to use</h2>
+  <ol style="color:#6b7490;font-size:.83rem;line-height:2;padding-left:20px">
+    <li>Click <strong style="color:#4f8eff">Download All Icons</strong> → extract the zip (each file is named for its mipmap folder)</li>
+    <li>Copy each PNG to <code style="color:#2dd4a0">android/app/src/main/res/mipmap-*/ic_launcher.png</code> and <code style="color:#2dd4a0">ic_launcher_round.png</code></li>
+    <li>Copy adaptive foreground → <code style="color:#2dd4a0">mipmap-anydpi-v26/ic_launcher_foreground.png</code></li>
+    <li>Copy splash PNGs to <code style="color:#2dd4a0">drawable-port-*/splash.png</code> (portrait) and <code style="color:#2dd4a0">drawable-land-*/splash.png</code> (landscape)</li>
+    <li>Play Store 512×512 → upload to Google Play Console under <em>Store listing → App icon</em></li>
+  </ol>
+</div>
+
+<script>
+/* ─── Design constants ─── */
+const BG_DARK   = '#0a0c10';
+const BG1       = '#0f1624';
+const BG2       = '#080b12';
+const ACCENT    = '#4f8eff';
+const TEAL      = '#2dd4a0';
+const WHITE     = '#ffffff';
+
+/* ─── Round rect helper ─── */
+function rr(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+/* ─── Draw icon on canvas ─── */
+function drawIcon(canvas, size, rounded){
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.height = size;
+  const cx = size / 2, cy = size / 2;
+  const r = size * 0.22;
+
+  /* Background */
+  if(rounded){
+    rr(ctx, 0, 0, size, size, r);
+    ctx.clip();
+  }
+  const bgGrad = ctx.createLinearGradient(0, 0, size, size);
+  bgGrad.addColorStop(0, BG1);
+  bgGrad.addColorStop(1, BG2);
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, size, size);
+
+  /* Glow behind symbol */
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.42);
+  glow.addColorStop(0, 'rgba(79,142,255,0.18)');
+  glow.addColorStop(0.5, 'rgba(45,212,160,0.08)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, size, size);
+
+  /* Outer gradient ring */
+  const ringR = size * 0.34;
+  const ringW = size * 0.038;
+  ctx.beginPath();
+  ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+  const ringGrad = ctx.createLinearGradient(cx - ringR, cy - ringR, cx + ringR, cy + ringR);
+  ringGrad.addColorStop(0, ACCENT);
+  ringGrad.addColorStop(1, TEAL);
+  ctx.strokeStyle = ringGrad;
+  ctx.lineWidth = ringW;
+  ctx.stroke();
+
+  /* Small teal arc accent (bottom-right quarter) */
+  const arcR = ringR + ringW * 1.6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, arcR, Math.PI * 0.55, Math.PI * 1.05);
+  const arcGrad = ctx.createLinearGradient(cx - arcR, cy, cx + arcR, cy);
+  arcGrad.addColorStop(0, TEAL);
+  arcGrad.addColorStop(1, ACCENT);
+  ctx.strokeStyle = arcGrad;
+  ctx.lineWidth = ringW * 0.55;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  /* Rupee symbol ₹ */
+  const fontSize = size * 0.38;
+  ctx.font = `900 ${fontSize}px 'Outfit', Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  /* Symbol shadow/glow */
+  ctx.shadowColor = ACCENT;
+  ctx.shadowBlur = size * 0.06;
+  const symGrad = ctx.createLinearGradient(cx - fontSize/2, cy - fontSize/2, cx + fontSize/2, cy + fontSize/2);
+  symGrad.addColorStop(0, WHITE);
+  symGrad.addColorStop(0.5, '#d0e4ff');
+  symGrad.addColorStop(1, '#a8d8c8');
+  ctx.fillStyle = symGrad;
+  ctx.fillText('₹', cx, cy + size * 0.02);
+  ctx.shadowBlur = 0;
+
+  /* Tiny dot accent — bottom right of ring */
+  const dotAngle = Math.PI * 0.15;
+  const dotX = cx + ringR * Math.cos(dotAngle);
+  const dotY = cy + ringR * Math.sin(dotAngle);
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, ringW * 0.7, 0, Math.PI * 2);
+  ctx.fillStyle = TEAL;
+  ctx.fill();
+}
+
+/* ─── Draw splash screen ─── */
+function drawSplash(canvas, w, h){
+  const ctx = canvas.getContext('2d');
+  canvas.width = w; canvas.height = h;
+  const cx = w / 2, cy = h / 2;
+
+  /* Background */
+  ctx.fillStyle = BG_DARK;
+  ctx.fillRect(0, 0, w, h);
+
+  /* Subtle radial glow */
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w,h) * 0.55);
+  glow.addColorStop(0, 'rgba(79,142,255,0.1)');
+  glow.addColorStop(0.5, 'rgba(45,212,160,0.04)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  /* Mini icon above wordmark */
+  const iconSize = Math.min(w, h) * 0.18;
+  const iconY = cy - iconSize * 1.05;
+  const offscreen = document.createElement('canvas');
+  drawIcon(offscreen, Math.round(iconSize), false);
+  ctx.drawImage(offscreen, cx - iconSize/2, iconY - iconSize/2, iconSize, iconSize);
+
+  /* "FeeFlow" wordmark */
+  const wSize = Math.min(w, h) * 0.075;
+  ctx.font = `600 ${wSize}px 'Lora', Georgia, serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const wGrad = ctx.createLinearGradient(cx - wSize * 2, cy, cx + wSize * 2, cy);
+  wGrad.addColorStop(0, ACCENT);
+  wGrad.addColorStop(1, TEAL);
+  ctx.fillStyle = wGrad;
+  ctx.shadowColor = ACCENT;
+  ctx.shadowBlur = wSize * 0.3;
+  ctx.fillText('FeeFlow', cx, cy + iconSize * 0.18);
+  ctx.shadowBlur = 0;
+
+  /* "by Jenix" subtitle */
+  const sSize = Math.min(w, h) * 0.028;
+  ctx.font = `600 ${sSize}px 'Outfit', Arial, sans-serif`;
+  ctx.fillStyle = 'rgba(155,165,190,0.8)';
+  ctx.fillText('by Jenix', cx, cy + iconSize * 0.18 + wSize * 0.85);
+
+  /* Bottom tagline */
+  const tSize = Math.min(w, h) * 0.022;
+  ctx.font = `500 ${tSize}px 'Outfit', Arial, sans-serif`;
+  ctx.fillStyle = 'rgba(107,116,144,0.7)';
+  ctx.fillText('Privacy-first fee management', cx, cy + iconSize * 0.18 + wSize * 0.85 + sSize * 1.7);
+}
+
+/* ─── Icon sizes (mipmap folder → pixel size) ─── */
+const ICON_SIZES = [
+  { folder: 'mipmap-mdpi',    px: 48  },
+  { folder: 'mipmap-hdpi',    px: 72  },
+  { folder: 'mipmap-xhdpi',   px: 96  },
+  { folder: 'mipmap-xxhdpi',  px: 144 },
+  { folder: 'mipmap-xxxhdpi', px: 192 },
+];
+
+/* ─── Splash sizes (folder → w × h) ─── */
+const SPLASH_SIZES = [
+  { folder: 'drawable-port-mdpi',    w: 480,  h: 800  },
+  { folder: 'drawable-port-hdpi',    w: 720,  h: 1280 },
+  { folder: 'drawable-port-xhdpi',   w: 960,  h: 1600 },
+  { folder: 'drawable-port-xxhdpi',  w: 1080, h: 1920 },
+  { folder: 'drawable-port-xxxhdpi', w: 1440, h: 2560 },
+  { folder: 'drawable-land-mdpi',    w: 800,  h: 480  },
+  { folder: 'drawable-land-hdpi',    w: 1280, h: 720  },
+  { folder: 'drawable-land-xhdpi',   w: 1600, h: 960  },
+  { folder: 'drawable-land-xxhdpi',  w: 1920, h: 1080 },
+  { folder: 'drawable-land-xxxhdpi', w: 2560, h: 1440 },
+];
+
+/* ─── Build icon previews ─── */
+function buildIconPreviews(){
+  const wrap = document.getElementById('iconPreviews');
+  // Show 48, 96, 192, 512 as preview
+  [48, 96, 192, 512].forEach(px => {
+    const div = document.createElement('div'); div.className = 'thumb';
+    const c = document.createElement('canvas');
+    const display = Math.min(px, 96);
+    c.style.width = display + 'px'; c.style.height = display + 'px';
+    drawIcon(c, px, true);
+    const lbl = document.createElement('div'); lbl.className = 'lbl';
+    lbl.textContent = px === 512 ? 'Play Store 512' : px + 'px';
+    div.appendChild(c); div.appendChild(lbl);
+    wrap.appendChild(div);
+  });
+}
+
+/* ─── Build splash previews ─── */
+function buildSplashPreviews(){
+  const wrap = document.getElementById('splashPreviews');
+  // Show 2 portrait + 1 landscape as preview
+  [[480,800,'Port mdpi'],[720,1280,'Port hdpi'],[1280,720,'Land hdpi']].forEach(([w,h,lbl]) => {
+    const div = document.createElement('div'); div.className = 'thumb';
+    const c = document.createElement('canvas');
+    const scale = 90 / Math.max(w, h);
+    c.style.width = Math.round(w * scale) + 'px';
+    c.style.height = Math.round(h * scale) + 'px';
+    drawSplash(c, w, h);
+    const l = document.createElement('div'); l.className = 'lbl';
+    l.textContent = lbl + ' · ' + w + '×' + h;
+    div.appendChild(c); div.appendChild(l);
+    wrap.appendChild(div);
+  });
+}
+
+/* ─── Download helper ─── */
+function dlCanvas(canvas, filename){
+  const a = document.createElement('a');
+  a.download = filename;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+}
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+/* ─── Download all icons ─── */
+async function downloadAllIcons(){
+  const st = document.getElementById('iconStatus');
+  st.textContent = 'Generating...';
+  for(const s of ICON_SIZES){
+    const c = document.createElement('canvas');
+    drawIcon(c, s.px, true);
+    dlCanvas(c, s.folder + '_ic_launcher.png');
+    await sleep(200);
+    dlCanvas(c, s.folder + '_ic_launcher_round.png');
+    await sleep(200);
+  }
+  st.textContent = '✓ ' + ICON_SIZES.length * 2 + ' icon files downloaded. Rename each: remove folder prefix, use ic_launcher.png and ic_launcher_round.png';
+}
+
+/* ─── Download Play Store icon ─── */
+function downloadPlayStore(){
+  const c = document.createElement('canvas');
+  drawIcon(c, 512, false); // flat, no clip — Play Store wants square
+  dlCanvas(c, 'playstore_icon_512.png');
+  document.getElementById('iconStatus').textContent = '✓ playstore_icon_512.png downloaded';
+}
+
+/* ─── Download adaptive icon layers ─── */
+async function downloadAdaptive(){
+  // Foreground: 108×108 safe zone in 432×432 canvas
+  const fg = document.createElement('canvas'); fg.width = fg.height = 432;
+  const fgCtx = fg.getContext('2d');
+  fgCtx.clearRect(0, 0, 432, 432);
+  // Draw icon centered in the 108px safe zone (108px margins on each side)
+  const iconC = document.createElement('canvas');
+  drawIcon(iconC, 216, false);
+  fgCtx.drawImage(iconC, 108, 108, 216, 216);
+  dlCanvas(fg, 'adaptive_ic_launcher_foreground.png');
+  await sleep(300);
+
+  // Background: solid dark color 108×108
+  const bg = document.createElement('canvas'); bg.width = bg.height = 108;
+  const bgCtx = bg.getContext('2d');
+  bgCtx.fillStyle = BG_DARK;
+  bgCtx.fillRect(0, 0, 108, 108);
+  dlCanvas(bg, 'adaptive_ic_launcher_background.png');
+  document.getElementById('iconStatus').textContent = '✓ Adaptive layers downloaded — place in mipmap-anydpi-v26/';
+}
+
+/* ─── Download all splash screens ─── */
+async function downloadAllSplash(){
+  const st = document.getElementById('splashStatus');
+  st.textContent = 'Generating ' + SPLASH_SIZES.length + ' splash screens...';
+  let count = 0;
+  for(const s of SPLASH_SIZES){
+    const c = document.createElement('canvas');
+    drawSplash(c, s.w, s.h);
+    dlCanvas(c, s.folder + '_splash.png');
+    count++;
+    st.textContent = 'Downloaded ' + count + ' / ' + SPLASH_SIZES.length + '...';
+    await sleep(300);
+  }
+  st.textContent = '✓ All ' + SPLASH_SIZES.length + ' splash screens downloaded. Rename each: remove folder prefix → splash.png';
+}
+
+/* ─── Init ─── */
+window.addEventListener('load', () => {
+  // Wait for fonts then build
+  document.fonts.ready.then(() => {
+    buildIconPreviews();
+    buildSplashPreviews();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content="Delete your FeeFlow account and all associated data."/>
+<title>Delete Account | FeeFlow</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Lora:ital,wght@0,600;1,400&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0c10;--s1:#111318;--s2:#181c24;--border:#252a38;
+  --text:#f0f2f8;--muted:#6b7490;--muted2:#8892b0;
+  --accent:#4f8eff;--red:#ff5c5c;--green:#2dd4a0;
+}
+body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+.nav-wrap{position:sticky;top:0;z-index:100;background:rgba(10,12,16,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+.nav-inner{max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-family:'Lora',serif;font-size:1.5rem;font-weight:600;color:var(--accent);letter-spacing:-1.5px}
+.container{max-width:800px;margin:80px auto;padding:0 28px}
+.card{background:var(--s1);border:1px solid var(--border);border-radius:24px;padding:40px;text-align:center}
+h1{font-size:2rem;margin-bottom:16px}
+.warning{color:var(--red);margin:20px 0;font-weight:600}
+.btn-danger{background:var(--red);color:#fff;border:none;padding:14px 32px;border-radius:99px;font-weight:700;cursor:pointer;transition:opacity .2s;margin-top:20px}
+.btn-danger:hover{opacity:.85}
+.back-link{display:inline-block;margin-top:32px;color:var(--accent);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px;margin-top:60px}
+.footer-inner{max-width:1120px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.footer-links{display:flex;gap:20px;flex-wrap:wrap}
+.footer-links a{font-size:.78rem;color:var(--muted);text-decoration:none;transition:color .2s}
+.footer-links a:hover{color:var(--text)}
+.footer-copy{font-size:.7rem;color:var(--muted)}
+.steps{text-align:left;background:var(--s2);padding:20px;border-radius:16px;margin:20px 0}
+.steps li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<div class="nav-wrap">
+  <div class="nav-inner">
+    <div class="nav-logo">FeeFlow</div>
+    <div style="display:flex;align-items:center;gap:20px">
+      <a href="/" style="color:var(--muted2);text-decoration:none;font-size:.82rem">Home</a>
+      <a href="/app" style="background:var(--accent);color:#fff;padding:8px 18px;border-radius:10px;text-decoration:none;font-size:.82rem;font-weight:700">Open App</a>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="card">
+    <h1>Delete Account</h1>
+    <p style="color:var(--muted2);margin-bottom:24px">Permanently erase your FeeFlow account and all associated authentication data.</p>
+    <div class="warning">⚠️ This action is irreversible.</div>
+    <div class="steps">
+      <strong>What gets deleted:</strong>
+      <ul style="margin-top:12px">
+        <li>✓ Your phone number, name, and hashed PIN from our authentication server.</li>
+        <li>✓ Any Google Sign‑In link (if used).</li>
+        <li>✗ Your local fee data (members, receipts, payments) remains on your device – you must manually clear app data or uninstall.</li>
+        <li>✗ Google Drive backups (if any) are NOT automatically deleted. You must delete them from your own Google Drive.</li>
+        <li>✗ VPS sync data (if self-hosted) remains on your VPS.</li>
+      </ul>
+    </div>
+    <p style="font-size:.85rem;margin-top:16px">To delete your account, open the FeeFlow app → Settings → Delete Account. Or send a request from your registered email to <a href="mailto:manoj020218@gmail.com" style="color:var(--accent)">manoj020218@gmail.com</a> with subject "Delete My FeeFlow Account". We will process within 7 business days.</p>
+    <a href="/" class="back-link">← Return to FeeFlow</a>
+  </div>
+</div>
+<footer>
+  <div class="footer-inner">
+    <div style="font-family:'Lora',serif;color:var(--accent);font-size:1rem">FeeFlow <span style="font-family:'Outfit',sans-serif;font-size:.68rem;color:var(--muted)">by Jenix</span></div>
+    <div class="footer-links">
+      <a href="/">Home</a>
+      <a href="/about">About</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/contact">Contact</a>
+      <a href="/app">Open App</a>
+    </div>
+    <div class="footer-copy">© 2026 Jenix · iotsoft.in</div>
+  </div>
+</footer>
+</body>
+</html>

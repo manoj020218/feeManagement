@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FeeFlow — Connecting…</title>
+<style>
+  body{margin:0;background:#0a0c10;color:#f0f2f8;font-family:'Outfit',sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px}
+  .logo{font-size:2rem;font-weight:700;color:#4f8eff;letter-spacing:-2px}
+  .msg{font-size:.9rem;color:#6b7490}
+  .spinner{width:32px;height:32px;border:3px solid #252a38;border-top-color:#4f8eff;border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="logo">FeeFlow</div>
+<div class="spinner"></div>
+<div class="msg" id="msg">Connecting Google account…</div>
+<script>
+(function(){
+  // Extract token from hash or query string
+  const hash = window.location.hash.slice(1);
+  const query = window.location.search.slice(1);
+  const params = new URLSearchParams(hash || query);
+  const accessToken = params.get('access_token');
+  const state = params.get('state');
+  const error = params.get('error');
+
+  if(error){
+    document.getElementById('msg').textContent = 'Auth error: ' + error;
+    if(window.opener) window.opener.postMessage({ type:'gdrive_auth_error', error }, '*');
+    setTimeout(()=>window.close(), 2000);
+    return;
+  }
+
+  if(accessToken){
+    document.getElementById('msg').textContent = 'Connected! Returning to app…';
+    // Send token back to opener (web popup flow)
+    if(window.opener){
+      window.opener.postMessage({ type:'gdrive_auth_token', accessToken }, '*');
+      setTimeout(()=>window.close(), 500);
+    } else {
+      // Capacitor deep link — app handles via appUrlOpen listener
+      setTimeout(()=>window.close(), 1000);
+    }
+    return;
+  }
+
+  document.getElementById('msg').textContent = 'No token received.';
+  setTimeout(()=>window.close(), 2000);
+})();
+</script>
+</body>
+</html>

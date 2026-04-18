@@ -1,0 +1,27 @@
+{
+  "appId": "in.iotsoft.feeflow",
+  "appName": "FeeFlow",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "GoogleAuth": {
+      "clientId": "324441358854-sgp9u4l01agtq2sdqroehq55jiqijjit.apps.googleusercontent.com",
+      "scopes": ["profile", "email"],
+      "serverClientId": "324441358854-sgp9u4l01agtq2sdqroehq55jiqijjit.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": false
+    },
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#0a0c10",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    }
+  }
+}

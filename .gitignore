@@ -1,0 +1,119 @@
+# ═══════════════════════════════════════════════════════════
+#  FeeFlow .gitignore
+#  Run `git rm -r --cached .` after updating to apply changes
+# ═══════════════════════════════════════════════════════════
+
+# ── Dependencies ───────────────────────────────────────────
+node_modules/
+client/node_modules/
+
+# ── Environment / Secrets (NEVER commit these) ─────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production.local
+.env.test.local
+
+# client env — only .env.production is safe to commit
+#   (it only has public VITE_ vars: API_BASE, GOOGLE_CLIENT_ID)
+client/.env.local
+client/.env.development
+client/.env.test
+
+# ── Build output ───────────────────────────────────────────
+dist/
+build/
+public/assets/          # Vite builds here — generated, not source
+client/dist/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+client/*.tsbuildinfo
+
+# ── Android ────────────────────────────────────────────────
+android/app/build/
+android/.gradle/
+android/local.properties
+android/app/release/
+android/app/debug/
+android/.idea/
+android/captures/
+
+# Android keystore — NEVER commit signing keys
+android/app/*.jks
+android/app/*.keystore
+*.jks
+*.keystore
+release.keystore
+
+# Google services (contains API keys)
+android/app/google-services.json
+ios/App/App/GoogleService-Info.plist
+
+# ── iOS ────────────────────────────────────────────────────
+ios/App/build/
+ios/App/Pods/
+ios/App/App.xcworkspace/xcuserdata/
+ios/.idea/
+
+# ── Capacitor ──────────────────────────────────────────────
+.capacitor/
+
+# ── Logs ───────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── OS files ───────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# ── Claude Code internal files ────────────────────────────
+.claude/
+
+# ── Editor / IDE ───────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── Database artifacts ─────────────────────────────────────
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# ── Temp / scratch files ───────────────────────────────────
+*.tmp
+*.temp
+*.bak
+base_check.apk
+*.apk
+
+# ── Internal planning docs (not for public repo) ───────────
+PROJECT_STATUS.md
+react.txt
+VPS-SETUP.md
+
+# ── Deploy scripts (contain server details) ────────────────
+scripts/deploy-*.sh
+scripts/setup-*.sh
+
+# ── Store assets (large images — use release branch) ───────
+store-assets/
+
+# ── Test / debug files ─────────────────────────────────────
+api-test.http
+*.http
+*.rest

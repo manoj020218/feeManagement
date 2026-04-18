@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="theme-color" content="#0a0c10"/>
+<meta name="description" content="FeeFlow — Privacy-first fee management with reminders, WhatsApp receipts, Excel/JSON exports, and member dashboards. Perfect for schools, gyms, libraries, and more."/>
+<meta property="og:title" content="FeeFlow — by Jenix | Smart Fee Management"/>
+<meta property="og:description" content="Never miss a fee again. Automated reminders, instant WhatsApp receipts, member self-service, and full data control (Excel, JSON, Google Drive, VPS)."/>
+<meta property="og:type" content="website"/>
+<title>FeeFlow — by Jenix | Smart Fee Management • Reminders • WhatsApp Receipts</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Lora:ital,wght@0,600;1,400&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0c10;--s1:#111318;--s2:#181c24;--s3:#1f2430;
+  --border:#252a38;--border2:#2e3447;
+  --text:#f0f2f8;--muted:#6b7490;--muted2:#8892b0;
+  --accent:#4f8eff;--accent2:#7c5cfc;--green:#2dd4a0;--red:#ff5c5c;--yellow:#ffc542;
+  --r:14px;
+}
+html{scroll-behavior:smooth}
+body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);font-size:16px;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+
+/* ── NAV ── */
+nav{position:sticky;top:0;z-index:100;background:rgba(10,12,16,.85);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;max-width:1120px;margin:0 auto;width:100%}
+nav{position:sticky;top:0;z-index:100}
+.nav-wrap{position:sticky;top:0;z-index:100;background:rgba(10,12,16,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+.nav-inner{max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-family:'Lora',serif;font-size:1.5rem;font-weight:600;color:var(--accent);letter-spacing:-1.5px;display:flex;align-items:center;gap:6px}
+.nav-logo span{font-family:'Outfit',sans-serif;font-size:.65rem;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;padding:2px 7px;border:1px solid var(--border);border-radius:99px;margin-left:4px}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{font-size:.85rem;font-weight:500;color:var(--muted2);transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.btn-nav{background:var(--accent);color:#fff;padding:8px 22px;border-radius:99px;font-size:.82rem;font-weight:700;transition:opacity .2s;white-space:nowrap}
+.btn-nav:hover{opacity:.88}
+
+/* hero + mockup */
+.hero{min-height:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 28px 40px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:700px;height:700px;background:radial-gradient(circle,rgba(79,142,255,.12) 0%,transparent 70%);pointer-events:none}
+h1{font-size:clamp(2.2rem,6vw,4rem);font-weight:900;line-height:1.12;letter-spacing:-1.5px;margin-bottom:22px;max-width:700px}
+h1 em{font-style:normal;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:clamp(.9rem,2.5vw,1.1rem);color:var(--muted2);line-height:1.75;max-width:600px;margin:0 auto 36px}
+.hero-cta{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-bottom:40px}
+.btn-primary{background:var(--accent);color:#fff;padding:13px 32px;border-radius:12px;font-size:.95rem;font-weight:700;transition:opacity .2s,transform .15s}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px)}
+.btn-secondary{background:var(--s2);color:var(--text);border:1.5px solid var(--border);padding:13px 32px;border-radius:12px;font-size:.95rem;font-weight:600;transition:border-color .2s,transform .15s}
+.btn-secondary:hover{border-color:var(--accent);transform:translateY(-1px)}
+
+/* MOCKUP + TOGGLE */
+.mockup-wrap{position:relative;max-width:400px;margin:40px auto 0;z-index:1}
+.mockup{background:var(--s1);border:1px solid var(--border2);border-radius:32px;padding:24px 20px;box-shadow:0 40px 80px rgba(0,0,0,.5)}
+.toggle-btns{display:flex;gap:12px;justify-content:center;margin-bottom:18px}
+.toggle-btn{background:var(--s2);border:1px solid var(--border);border-radius:99px;padding:8px 20px;font-size:.75rem;font-weight:600;cursor:pointer;transition:all .2s;color:var(--muted2)}
+.toggle-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.mockup-content{transition:opacity .2s}
+.member-badge{font-size:.62rem;background:rgba(79,142,255,.15);padding:3px 10px;border-radius:99px;color:var(--accent);display:inline-block}
+/* member specific styles */
+.payment-item{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:.75rem}
+.payment-date{color:var(--muted2)}
+.status-paid{color:var(--green);font-weight:700}
+.status-pending{color:var(--yellow);font-weight:700}
+.receipt-row{background:var(--s3);border-radius:10px;padding:10px;margin-top:12px;font-size:.7rem}
+/* sections */
+section{padding:80px 28px;max-width:1120px;margin:0 auto}
+.section-label{font-size:.72rem;font-weight:700;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+h2{font-size:clamp(1.6rem,4vw,2.4rem);font-weight:800;line-height:1.2;letter-spacing:-1px;margin-bottom:14px}
+.section-sub{font-size:.95rem;color:var(--muted2);line-height:1.7;max-width:540px;margin-bottom:48px}
+.features-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px}
+.feat-card{background:var(--s1);border:1px solid var(--border);border-radius:20px;padding:26px;transition:border-color .25s,transform .2s}
+.feat-card:hover{border-color:var(--border2);transform:translateY(-3px)}
+.feat-icon{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;margin-bottom:16px}
+.feat-card h3{font-size:1rem;font-weight:700;margin-bottom:7px}
+.feat-card p{font-size:.82rem;color:var(--muted2);line-height:1.65}
+.types-section{padding:48px 0;background:var(--s1);border-top:1px solid var(--border);border-bottom:1px solid var(--border);overflow:hidden}
+.marquee-track{display:flex;gap:12px;animation:marquee 28s linear infinite;width:max-content}
+.type-chip{display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:99px;padding:8px 16px;white-space:nowrap;font-size:.8rem;font-weight:600}
+@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;counter-reset:step}
+.step{background:var(--s1);border:1px solid var(--border);border-radius:20px;padding:24px;position:relative}
+.step-num{width:32px;height:32px;border-radius:50%;background:rgba(79,142,255,.12);border:1px solid rgba(79,142,255,.25);color:var(--accent);font-size:.8rem;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:14px}
+.privacy-section{background:linear-gradient(135deg,rgba(79,142,255,.06),rgba(124,92,252,.06));border:1px solid rgba(79,142,255,.15);border-radius:24px;padding:48px 40px;display:flex;gap:40px;align-items:center;flex-wrap:wrap}
+.priv-item{display:flex;align-items:center;gap:10px;font-size:.83rem;color:var(--muted2)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;margin-bottom:60px}
+.stat-card{background:var(--s1);border:1px solid var(--border);border-radius:16px;padding:22px 20px;text-align:center}
+.stat-number{font-size:2rem;font-weight:900;color:var(--accent);letter-spacing:-1px}
+.cta-section{text-align:center;padding:100px 28px;position:relative}
+.download-btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.download-btn{display:flex;align-items:center;gap:10px;background:var(--s1);border:1.5px solid var(--border);border-radius:12px;padding:12px 22px;transition:border-color .2s}
+footer{border-top:1px solid var(--border);padding:40px 28px}
+.footer-inner{max-width:1120px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px}
+@media(max-width:768px){.nav-links{display:none}.privacy-section{padding:32px 24px}}
+</style>
+</head>
+<body>
+<div class="nav-wrap">
+  <div class="nav-inner">
+    <div class="nav-logo">FeeFlow<span>by Jenix</span></div>
+    <div class="nav-links">
+      <a href="#features">Features</a><a href="#how-it-works">How it works</a><a href="#data-control">Data & Exports</a><a href="#privacy">Privacy</a>
+      <a href="/app" class="btn-nav">Open App →</a>
+    </div>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-badge" style="display:inline-flex;align-items:center;gap:7px;background:rgba(79,142,255,.1);border-radius:99px;padding:5px 14px;margin-bottom:22px"><span class="dot" style="width:6px;height:6px;background:var(--green);border-radius:50%;display:inline-block"></span> Smart reminders · WhatsApp receipts</div>
+  <h1>Never chase fees again — <em>automated reminders, receipts & member dashboard</em></h1>
+  <p class="hero-sub">For schools, gyms, libraries, coaching, hostels, clubs & housing societies. Set reminders, collect fees, send WhatsApp receipts, and give members live pending/paid status — all privacy-first.</p>
+  <div class="hero-cta"><a href="/app" class="btn-primary">Start collecting fees →</a><a href="#" class="btn-secondary">Watch demo</a></div>
+
+  <!-- Interactive Mockup: Admin + Member view (shows pending dates, receipts, payment modes) -->
+  <div class="mockup-wrap">
+    <div class="toggle-btns">
+      <div class="toggle-btn active" data-view="admin">👑 Admin Dashboard</div>
+      <div class="toggle-btn" data-view="member">👤 Member View (Live dues & receipts)</div>
+    </div>
+    <div class="mockup">
+      <!-- Admin View Content -->
+      <div id="adminView" class="mockup-content">
+        <div class="mockup-topbar" style="display:flex;justify-content:space-between;margin-bottom:18px">
+          <div class="mockup-logo" style="font-family:Lora;color:var(--accent);font-weight:600">FeeFlow</div>
+          <div style="font-size:.6rem;background:rgba(45,212,160,.1);padding:2px 10px;border-radius:99px">Admin: Sunshine Academy</div>
+        </div>
+        <div style="background:var(--s2);border-radius:14px;padding:14px;margin-bottom:14px">
+          <div style="display:flex;gap:12px;justify-content:space-between">
+            <div><div style="font-size:.65rem;color:var(--muted)">📅 This month</div><div style="font-weight:800">₹48,200</div><div style="font-size:.6rem;color:var(--green)">+12% vs last month</div></div>
+            <div><div style="font-size:.65rem;color:var(--muted)">⏰ Pending</div><div style="font-weight:800;color:var(--yellow)">₹6,400</div><div style="font-size:.6rem">3 members overdue</div></div>
+            <div><div style="font-size:.65rem;color:var(--muted)">👥 Members</div><div style="font-weight:800">24</div></div>
+          </div>
+        </div>
+        <div style="font-size:.7rem;font-weight:700;margin-bottom:10px">🔔 Upcoming reminders</div>
+        <div style="background:var(--s3);border-radius:12px;padding:8px 12px;margin-bottom:16px;font-size:.7rem">📢 Tomorrow: Rahul A. (₹2,000) • Priya M. (₹1,800) → Auto-WhatsApp reminder scheduled</div>
+        <div style="font-size:.7rem;font-weight:700;margin-bottom:8px">Recent payments</div>
+        <div class="mockup-member" style="display:flex;justify-content:space-between;padding:6px 0"><span>Rahul A. - Jan fee</span><span class="status-paid">Paid ₹2,000 (UPI)</span><span style="font-size:.6rem">✅ Receipt sent</span></div>
+        <div class="mockup-member" style="display:flex;justify-content:space-between;padding:6px 0"><span>Neha S. - Jan fee</span><span class="status-pending">Pending ₹1,500</span><span style="font-size:.6rem">⏰ Due 28 Feb</span></div>
+        <div class="receipt-row" style="margin-top:12px">📄 Last receipt: #INV-102 | Method: Bank Transfer | PDF shared via WhatsApp</div>
+      </div>
+
+      <!-- Member View Content (pending fees, due dates, receipts, payment modes) -->
+      <div id="memberView" class="mockup-content" style="display:none">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800">RA</div>
+          <div><div style="font-weight:700">Rahul A.</div><div class="member-badge">Member since Dec 2025</div></div>
+        </div>
+        <div style="background:var(--s2);border-radius:16px;padding:12px;margin-bottom:16px">
+          <div style="font-size:.7rem;font-weight:700;margin-bottom:10px">📌 Fee Status – Live</div>
+          <div class="payment-item"><span>📅 Feb 2026 Tuition</span><span><span class="status-pending">Pending</span> • ₹2,000</span><span class="payment-date">Due: 28 Feb</span></div>
+          <div class="payment-item"><span>📅 Jan 2026 Tuition</span><span><span class="status-paid">Paid</span> • ₹2,000</span><span>✅ Paid on 05 Jan</span></div>
+          <div class="payment-item"><span>📅 Dec 2025 Tuition</span><span><span class="status-paid">Paid</span> • ₹2,000</span><span>✅ Paid on 05 Dec</span></div>
+        </div>
+        <div class="receipt-row">
+          <div style="font-weight:700;margin-bottom:6px">🧾 Last Receipt (Jan 2026)</div>
+          <div>Receipt #INV-098 • Date: 05 Jan 2026</div>
+          <div>Amount: ₹2,000 • Mode: <strong>UPI (rahul@okhdfc)</strong></div>
+          <div>Status: <span class="status-paid">Paid & verified by institute</span></div>
+          <div style="margin-top:8px;font-size:.65rem">📎 PDF receipt available • Download / Share via WhatsApp</div>
+        </div>
+        <div class="receipt-row" style="margin-top:10px;background:rgba(45,212,160,.05)">
+          💡 Payment methods accepted: Cash, Cheque, UPI, Bank Transfer
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Institution marquee -->
+<div class="types-section"><div style="overflow:hidden"><div class="marquee-track" id="marqueeTrack"><div class="type-chip"><span>🏫</span> School</div><div class="type-chip"><span>🏋️</span> Gym</div><div class="type-chip"><span>📚</span> Library</div><div class="type-chip"><span>🏠</span> Hostel/PG</div><div class="type-chip"><span>🎵</span> Music Academy</div><div class="type-chip"><span>🏊</span> Swimming</div><div class="type-chip"><span>🎓</span> Coaching</div><div class="type-chip"><span>🏸</span> Sports Academy</div><div class="type-chip"><span>🏘️</span> Housing Society</div><div class="type-chip"><span>💈</span> Salon/Spa</div><div class="type-chip"><span>🏛️</span> Club</div><div class="type-chip"><span>🎨</span> Skill Learning</div><div class="type-chip"><span>🏋️‍♀️</span> Fitness Studio</div><div class="type-chip"><span>🧘</span> Yoga</div><div class="type-chip"><span>🚗</span> Driving School</div><div class="type-chip"><span>🏨</span> PG/Hostel</div><div class="type-chip"><span>🏛️</span> College</div><div class="type-chip"><span>🏊</span> Swim Club</div></div></div></div>
+
+<!-- Features Grid (including reminders, exports, VPS) -->
+<section id="features">
+  <div class="section-label">Powerful toolkit</div>
+  <h2>Everything to streamline fee collection</h2>
+  <div class="features-grid">
+    <div class="feat-card"><div class="feat-icon">⏰</div><h3>Smart Reminders</h3><p>Set due dates & FeeFlow automatically sends WhatsApp/SMS reminders before deadline. Admin dashboard shows upcoming dues at a glance.</p></div>
+    <div class="feat-card"><div class="feat-icon">📲</div><h3>WhatsApp Receipts</h3><p>Generate branded PDF receipt with payment mode (Cash/UPI/Cheque/Bank) and share instantly on WhatsApp. One tap.</p></div>
+    <div class="feat-card"><div class="feat-icon">👁️</div><h3>Member Live Dashboard</h3><p>Members see pending fees, due dates, payment history, and download receipts. Institute marks “paid” → status updates live.</p></div>
+    <div class="feat-card"><div class="feat-icon">📂</div><h3>Excel & JSON Export</h3><p>Admin can download all member data, fee records, transactions as Excel or JSON file. Full control, offline backup.</p></div>
+    <div class="feat-card"><div class="feat-icon">☁️</div><h3>Google Drive Backup</h3><p>One-click backup to your own Google Drive. Restore on any device. Also export JSON/Excel for local archives.</p></div>
+    <div class="feat-card"><div class="feat-icon">🖥️</div><h3>VPS Sync (Enterprise)</h3><p>Optional encrypted sync to your own VPS. Self-hosted, team access, and real-time backup across devices.</p></div>
+    <div class="feat-card"><div class="feat-icon">🏛️</div><h3>Multi-Institution</h3><p>Manage School, Gym, Library, Coaching, Society from single account. Switch in one click.</p></div>
+    <div class="feat-card"><div class="feat-icon">💳</div><h3>Payment Modes Logging</h3><p>Record Cash, Cheque, UPI, Bank Transfer with transaction ID and notes. Receipt reflects exact method.</p></div>
+    <div class="feat-card"><div class="feat-icon">🔐</div><h3>Privacy-first</h3><p>All financial data stored only on your device or your cloud (Google Drive/VPS). Our servers never see your collections.</p></div>
+  </div>
+</section>
+
+<!-- How it solves problems + reminder deep dive -->
+<section style="background:var(--s1);border-radius:24px;margin:0 auto 40px;padding:60px 40px">
+  <div class="section-label">Problem → Solution</div>
+  <h2>Finally, a fee system that works for everyone</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:28px;margin-top:32px">
+    <div><div style="font-weight:800;color:var(--red);margin-bottom:5px">❌ Missed fee follow-ups</div><div style="color:var(--muted2);font-size:.85rem">✅ Automated reminders (WhatsApp) & member self-view reduces late payments by 80%</div></div>
+    <div><div style="font-weight:800;color:var(--red);margin-bottom:5px">❌ Receipts take hours</div><div style="color:var(--muted2);font-size:.85rem">✅ Generate PDF receipt in 2 seconds + WhatsApp delivery, includes all payment modes</div></div>
+    <div><div style="font-weight:800;color:var(--red);margin-bottom:5px">❌ Members unaware of pending dues</div><div style="color:var(--muted2);font-size:.85rem">✅ Members log in & see real-time pending/paid status, due dates, receipt history</div></div>
+    <div><div style="font-weight:800;color:var(--red);margin-bottom:5px">❌ Fear of data loss</div><div style="color:var(--muted2);font-size:.85rem">✅ Google Drive backup + Excel/JSON manual export + optional VPS sync</div></div>
+  </div>
+</section>
+
+<!-- Data control: Excel, JSON, VPS, Google Drive -->
+<section id="data-control">
+  <div class="section-label">Admin data sovereignty</div>
+  <h2>Export, backup & own your data</h2>
+  <div class="features-grid" style="margin-bottom:20px">
+    <div class="feat-card" style="border-left:3px solid var(--green)"><div class="feat-icon">📊</div><h3>Download Excel (.xlsx)</h3><p>One-click download all members, fees, collection summary. Perfect for audits or offline reporting.</p></div>
+    <div class="feat-card" style="border-left:3px solid var(--accent)"><div class="feat-icon">📄</div><h3>JSON export</h3><p>Full raw data export (members, transactions, receipts) in JSON format. Ideal for custom integrations.</p></div>
+    <div class="feat-card" style="border-left:3px solid var(--yellow)"><div class="feat-icon">☁️</div><h3>Google Drive auto-backup</h3><p>Schedule daily/weekly backups to your private Google Drive. Restore with one click.</p></div>
+    <div class="feat-card" style="border-left:3px solid var(--accent2)"><div class="feat-icon">🖥️</div><h3>Your own VPS (self-hosted sync)</h3><p>Advanced: Encrypt & sync data to your private VPS. Team access, multi-admin, full redundancy.</p></div>
+  </div>
+  <div style="background:var(--s2);border-radius:18px;padding:18px;text-align:center;font-size:.85rem">🔐 All exports are fully under your control — no cloud middleman, no subscription fees for data access.</div>
+</section>
+
+<!-- How it works (improved with reminders & exports) -->
+<section id="how-it-works">
+  <div class="section-label">Simple workflow</div>
+  <h2>Get started in 3 minutes</h2>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><h3>Add members & set fee cycles</h3><p>Import via Excel or add manually. Set due dates, monthly/quarterly fees.</p></div>
+    <div class="step"><div class="step-num">2</div><h3>Enable reminders</h3><p>Automated WhatsApp alerts before due date. Never chase again.</p></div>
+    <div class="step"><div class="step-num">3</div><h3>Collect & mark paid</h3><p>Record payment with mode (UPI/Cash/Cheque/Bank). Generate receipt instantly.</p></div>
+    <div class="step"><div class="step-num">4</div><h3>Send receipt on WhatsApp</h3><p>Share branded PDF to member. They get it instantly.</p></div>
+    <div class="step"><div class="step-num">5</div><h3>Member view & self-check</h3><p>Members see pending/paid, download receipts, due dates — reduces your calls by 70%.</p></div>
+    <div class="step"><div class="step-num">6</div><h3>Export & backup</h3><p>Download Excel/JSON, backup to Google Drive or sync to VPS.</p></div>
+  </div>
+</section>
+
+<!-- Privacy + VPS mention -->
+<section id="privacy">
+  <div class="privacy-section">
+    <div class="privacy-icon">🛡️</div>
+    <div class="privacy-content">
+      <div class="section-label">100% privacy-first</div>
+      <h2 style="margin-bottom:10px">Your financial data never touches our servers — unless you choose VPS sync</h2>
+      <div class="priv-item">✅ All fee records, member PII stay on your device or Google Drive (your account).</div>
+      <div class="priv-item">✅ Optional VPS sync: you host the backend, we provide encryption keys.</div>
+      <div class="priv-item">✅ No ads, no selling data. Forever free core features.</div>
+      <div class="priv-item">✅ Admins can export Excel/JSON anytime for complete ownership.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Stats & CTA -->
+<section style="text-align:center">
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-number">17+</div><div class="stat-desc">Institution types</div></div>
+    <div class="stat-card"><div class="stat-number">📱</div><div class="stat-desc">WhatsApp + SMS reminders</div></div>
+    <div class="stat-card"><div class="stat-number">∞</div><div class="stat-desc">Members free</div></div>
+    <div class="stat-card"><div class="stat-number">₹0</div><div class="stat-desc">Monthly fee</div></div>
+  </div>
+</section>
+
+<div class="cta-section">
+  <div class="section-label">Stop chasing payments</div>
+  <h2>Join 500+ institutions using FeeFlow</h2>
+  <p>Set reminders, send receipts via WhatsApp, give members live visibility, and backup everything to Drive or your own VPS.</p>
+  <div class="download-btns">
+    <a href="/app" style="background:var(--accent);border-color:var(--accent)" class="download-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><div class="dl-text"><span class="dl-small">Open web app</span><span class="dl-big">Launch FeeFlow</span></div></a>
+    <a href="#" class="download-btn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)"><path d="M5 3l14 9-14 9V3z"/></svg><div class="dl-text"><span class="dl-small">Get on</span><span class="dl-big">Google Play</span></div></a>
+  </div>
+</div>
+
+<footer>
+  <div class="footer-inner"><div><div class="footer-logo">FeeFlow</div><div class="footer-by">by Jenix · iotsoft.in</div></div><div class="footer-links"><a href="/app">Open App</a><a href="#privacy">Privacy</a><a href="#data-control">Exports & VPS</a></div><div class="footer-copy">© 2026 Jenix · Zero financial data on our servers</div></div>
+</footer>
+
+<script>
+  // Toggle between admin and member mockup view
+  const adminDiv = document.getElementById('adminView');
+  const memberDiv = document.getElementById('memberView');
+  const btns = document.querySelectorAll('.toggle-btn');
+  function setActiveView(view) {
+    if(view === 'admin') {
+      adminDiv.style.display = 'block';
+      memberDiv.style.display = 'none';
+    } else {
+      adminDiv.style.display = 'none';
+      memberDiv.style.display = 'block';
+    }
+    btns.forEach(btn => {
+      if(btn.getAttribute('data-view') === view) btn.classList.add('active');
+      else btn.classList.remove('active');
+    });
+  }
+  btns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = btn.getAttribute('data-view');
+      setActiveView(view);
+    });
+  });
+  // marquee dynamic duplication
+  const track = document.getElementById('marqueeTrack');
+  if(track) {
+    const children = Array.from(track.children);
+    children.forEach(c => track.appendChild(c.cloneNode(true)));
+  }
+</script>
+</body>
+</html>
