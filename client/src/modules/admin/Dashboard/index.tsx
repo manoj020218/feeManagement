@@ -1,16 +1,28 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from '@/core/store/useAppStore';
 import { th } from '@/data/institutionTypes';
 import { fmtDateShort, daysDiff, dueLabel } from '@/utils/dateHelpers';
+import { effectiveStatus, graceRemaining } from '@/utils/feeRules';
 import { formatCurrency } from '@/data/countries';
+import RecordPaymentModal from '@/modules/admin/Payments/RecordPaymentModal';
+import type { Member } from '@/core/types';
 
 interface Props { accentColor: string; }
+const EMPTY_ARRAY: never[] = [];
 
 export default function Dashboard({ accentColor }: Props) {
-  const { institutions, activeInstId, setActiveInst, getMembers, getTransactions, defaultCountry } = useAppStore();
+  //const { institutions, activeInstId, setActiveInst, defaultCountry } = useAppStore();
+  // ✅ Good – each value is selected independently
+  const institutions  = useAppStore(s => s.institutions);
+  const activeInstId  = useAppStore(s => s.activeInstId);
+  const setActiveInst = useAppStore(s => s.setActiveInst);
+  const defaultCountry = useAppStore(s => s.defaultCountry);
+  //const members = useAppStore(s => activeInstId ? s.members[activeInstId] ?? [] : []);
+  //const txns    = useAppStore(s => activeInstId ? s.transactions[activeInstId] ?? [] : []);
+  const members = useAppStore(s => activeInstId ? s.members[activeInstId] ?? EMPTY_ARRAY : EMPTY_ARRAY);
+  const txns    = useAppStore(s => activeInstId ? s.transactions[activeInstId] ?? EMPTY_ARRAY : EMPTY_ARRAY);
+  const [payMember, setPayMember] = useState<Member | null>(null);
   const inst = institutions.find(i => i.id === activeInstId);
-  const members = inst ? getMembers(inst.id) : [];
-  const txns    = inst ? getTransactions(inst.id) : [];
 
   const stats = useMemo(() => {
     const total     = members.length;
@@ -25,13 +37,14 @@ export default function Dashboard({ accentColor }: Props) {
   }, [members, txns]);
 
   const dueMembers = useMemo(() =>
-    members.filter(m => m.status === 'due' || m.status === 'overdue')
+    members
+      .filter(m => { const s = inst ? effectiveStatus(m, inst) : m.status; return s === 'due' || s === 'overdue'; })
       .sort((a, b) => {
         const da = a.nextDue ? new Date(a.nextDue).getTime() : Infinity;
         const db = b.nextDue ? new Date(b.nextDue).getTime() : Infinity;
         return da - db;
       }).slice(0, 5),
-  [members]);
+  [members, inst]);
 
   if (!inst) return (
     <div style={{padding:24,textAlign:'center',color:'var(--muted)'}}>
@@ -73,8 +86,10 @@ export default function Dashboard({ accentColor }: Props) {
         <div className="card" style={{marginBottom:14}}>
           <div className="card-hdr">Due Soon</div>
           {dueMembers.map(m => {
-            const days = m.nextDue ? daysDiff(m.nextDue) : null;
-            const isOverdue = days !== null && days < 0;
+            const days      = m.nextDue ? daysDiff(m.nextDue) : null;
+            const effSt     = inst ? effectiveStatus(m, inst) : m.status;
+            const graceLeft = inst ? graceRemaining(m, inst) : null;
+            const isOverdue = effSt === 'overdue';
             return (
               <div key={m.id} className="mrow" style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
                 <div className="mavatar" style={{
@@ -87,18 +102,32 @@ export default function Dashboard({ accentColor }: Props) {
                   <div style={{fontWeight:700,fontSize:'.88rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.name}</div>
                   <div style={{fontSize:'.72rem',color:'var(--muted)',marginTop:2}}>{m.plan}</div>
                 </div>
-                <div style={{textAlign:'right',flexShrink:0}}>
+                <div style={{textAlign:'right',flexShrink:0,display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
                   <div style={{fontWeight:800,fontSize:'.82rem',color:isOverdue?'var(--red)':'var(--yellow)'}}>
                     {formatCurrency(m.fee, defaultCountry)}
                   </div>
-                  <div style={{fontSize:'.68rem',color:isOverdue?'var(--red)':'var(--muted)',marginTop:2}}>
+                  <div style={{fontSize:'.68rem',color:isOverdue?'var(--red)':graceLeft!==null?'var(--yellow)':'var(--muted)'}}>
                     {days !== null ? (days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `in ${days}d`) : '—'}
+                    {graceLeft !== null && ` · grace ${graceLeft}d`}
                   </div>
+                  <button onClick={() => setPayMember(m)}
+                    style={{background:'var(--accent)',border:'none',borderRadius:6,color:'#fff',
+                      padding:'3px 10px',fontSize:'.68rem',fontWeight:700,cursor:'pointer',fontFamily:'Outfit,sans-serif'}}>
+                    Rec
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+
+      {payMember && inst && (
+        <RecordPaymentModal
+          instId={inst.id}
+          preselectedMember={payMember}
+          onClose={() => setPayMember(null)}
+        />
       )}
 
       {/* Recent transactions */}

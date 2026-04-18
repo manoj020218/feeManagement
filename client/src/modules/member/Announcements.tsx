@@ -16,7 +16,7 @@ interface Props {
 }
 
 export default function Announcements({ onLoad }: Props) {
-  const { memberships } = useAppStore();
+  const memberships = useAppStore(s => s.memberships);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
 

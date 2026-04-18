@@ -28,7 +28,11 @@ export default function OnboardingFlow({ onDone }: Props) {
   const [country, setCountry]   = useState('IN');
 
   const { loginWithPin, registerWithPin, error, loading, setError } = useAuthStore();
-  const { addInstitution, setActiveInst, setActiveRole, updateSettings } = useAppStore();
+  // ✅ Individual selectors – no whole‑store destructuring
+  const addInstitution = useAppStore(s => s.addInstitution);
+  const setActiveInst = useAppStore(s => s.setActiveInst);
+  const setActiveRole = useAppStore(s => s.setActiveRole);
+  const updateSettings = useAppStore(s => s.updateSettings);
   const { toast } = useUIStore();
 
   async function handleAuth() {

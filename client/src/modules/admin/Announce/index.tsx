@@ -13,7 +13,9 @@ const TYPE_CONFIG: Record<AnnType, { icon: string; label: string; color: string 
 };
 
 export default function AdminAnnounce() {
-  const { institutions } = useAppStore();
+  // ✅ Individual selector – no whole‑store destructuring
+  const institutions = useAppStore(s => s.institutions);
+
   const { toast } = useUIStore();
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -202,7 +204,9 @@ export default function AdminAnnounce() {
 
 // ── Feedback sub-section ─────────────────────────────────
 function FeedbackSection() {
-  const { institutions } = useAppStore();
+  // ✅ Individual selector – no whole‑store destructuring
+  const institutions = useAppStore(s => s.institutions);
+
   const { toast } = useUIStore();
   const [open,     setOpen]     = useState(false);
   const [selCode,  setSelCode]  = useState('');

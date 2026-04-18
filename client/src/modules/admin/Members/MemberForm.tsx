@@ -21,16 +21,22 @@ const FREQS: { value: PayFreq; label: string }[] = [
 ];
 
 export default function MemberForm({ instId, member, onClose }: Props) {
-  const { institutions, addMember, updateMember } = useAppStore();
+   // ✅ Individual selectors – no whole‑store destructuring
+  const institutions = useAppStore(s => s.institutions);
+  const addMember = useAppStore(s => s.addMember);
+  const updateMember = useAppStore(s => s.updateMember);
   const { toast } = useUIStore();
   const inst = institutions.find(i => i.id === instId);
   const t = inst ? th(inst.type) : th('other');
   const isEdit = !!member;
 
-  const [name,     setName]     = useState(member?.name     ?? '');
-  const [phone,    setPhone]    = useState(member?.phone    ?? '');
-  const [address,  setAddress]  = useState(member?.address  ?? '');
-  const [plan,     setPlan]     = useState(member?.plan     ?? (t.plans[0] ?? ''));
+  const [name,       setName]       = useState(member?.name       ?? '');
+  const [phone,      setPhone]      = useState(member?.phone      ?? '');
+  const [address,    setAddress]    = useState(member?.address    ?? '');
+  const [identifier, setIdentifier] = useState(member?.identifier ?? '');
+  const isCustomPlan = !!member && !t.plans.includes(member.plan);
+  const [plan,       setPlan]       = useState(isCustomPlan ? '__custom__' : (member?.plan ?? (t.plans[0] ?? '')));
+  const [customPlan, setCustomPlan] = useState(isCustomPlan ? (member?.plan ?? '') : '');
   const [fee,      setFee]      = useState(String(member?.fee ?? (t.fees[0] ?? 0)));
   const [freq,     setFreq]     = useState<PayFreq>(member?.freq     ?? 'monthly');
   const [joinDate, setJoinDate] = useState(member?.joinDate ?? todayISO());
@@ -40,6 +46,8 @@ export default function MemberForm({ instId, member, onClose }: Props) {
 
   function handleSave() {
     if (!name.trim()) { toast('Enter member name', 'warn'); return; }
+    const resolvedPlan = plan === '__custom__' ? customPlan.trim() : plan;
+    if (!resolvedPlan) { toast('Enter a plan name', 'warn'); return; }
     const normPhone = phone ? normalizePhone(phone) : '';
     const feeNum = parseFloat(fee) || 0;
     const computedNextDue = nextDue || (joinDate ? addFreq(joinDate, freq) : '');
@@ -47,7 +55,8 @@ export default function MemberForm({ instId, member, onClose }: Props) {
     if (isEdit && member) {
       updateMember(instId, member.id, {
         name: name.trim(), phone: normPhone || undefined, address: address.trim() || undefined,
-        plan, fee: feeNum, freq, joinDate, nextDue: computedNextDue, status, note: note.trim() || undefined,
+        identifier: identifier.trim() || undefined,
+        plan: resolvedPlan, fee: feeNum, freq, joinDate, nextDue: computedNextDue, status, note: note.trim() || undefined,
       });
       toast('Member updated', 'ok');
     } else {
@@ -55,7 +64,8 @@ export default function MemberForm({ instId, member, onClose }: Props) {
       addMember({
         id, instId, name: name.trim(), phone: normPhone || undefined,
         address: address.trim() || undefined,
-        plan, fee: feeNum, freq, joinDate, nextDue: computedNextDue, status, note: note.trim() || undefined,
+        identifier: identifier.trim() || undefined,
+        plan: resolvedPlan, fee: feeNum, freq, joinDate, nextDue: computedNextDue, status, note: note.trim() || undefined,
       });
       toast('Member added', 'ok');
     }
@@ -76,6 +86,34 @@ export default function MemberForm({ instId, member, onClose }: Props) {
         <div className="mo-handle"/>
         <div className="mo-title">{isEdit ? 'Edit' : 'Add'} {t.member}</div>
 
+        {/* Contact picker — Android only (Web Contact Picker API) */}
+        {!isEdit && 'contacts' in navigator && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const contacts = await (navigator as unknown as {
+                  contacts: { select: (props: string[], opts: object) => Promise<{ name: string[]; tel: string[] }[]> }
+                }).contacts.select(['name', 'tel'], { multiple: false });
+                if (contacts.length > 0) {
+                  const c = contacts[0];
+                  if (c.name?.[0])  setName(c.name[0].trim());
+                  if (c.tel?.[0])   setPhone(normalizePhone(c.tel[0]));
+                }
+              } catch { /* user cancelled */ }
+            }}
+            style={{
+              display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+              width:'100%', marginBottom:14,
+              background:'rgba(79,142,255,.1)', border:'1.5px dashed rgba(79,142,255,.4)',
+              borderRadius:'var(--r2)', padding:'11px 14px',
+              color:'var(--accent)', fontFamily:'Outfit,sans-serif', fontSize:'.85rem',
+              fontWeight:700, cursor:'pointer',
+            }}>
+            <span style={{fontSize:'1.1rem'}}>📱</span> Pick from Phone Contacts
+          </button>
+        )}
+
         <div className="fld">
           <label>Name *</label>
           <input value={name} onChange={e=>setName(e.target.value)} placeholder={`${t.member} name`} style={inpStyle}/>
@@ -87,6 +125,14 @@ export default function MemberForm({ instId, member, onClose }: Props) {
             onPaste={e=>{ const txt=e.clipboardData.getData('text'); setPhone(normalizePhone(txt)); e.preventDefault(); }}
             placeholder="10-digit mobile" type="tel" inputMode="numeric" style={inpStyle}/>
         </div>
+        {t.identifier && (
+          <div className="fld">
+            <label>{t.identifier}</label>
+            <input value={identifier} onChange={e=>setIdentifier(e.target.value)}
+              placeholder={`e.g. ${t.identifier === 'Apartment No.' ? 'A-204' : t.identifier === 'Class / Section' ? '5-A' : t.identifier === 'Room No.' ? '101' : t.identifier}`}
+              style={inpStyle}/>
+          </div>
+        )}
         <div className="fld">
           <label>Address</label>
           <input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Optional" style={inpStyle}/>
@@ -100,8 +146,8 @@ export default function MemberForm({ instId, member, onClose }: Props) {
             <option value="__custom__">Custom…</option>
           </select>
           {plan === '__custom__' && (
-            <input value={plan === '__custom__' ? '' : plan}
-              onChange={e=>setPlan(e.target.value)} placeholder="Custom plan name"
+            <input value={customPlan} onChange={e=>setCustomPlan(e.target.value)}
+              placeholder="Enter custom plan name" autoFocus
               style={{...inpStyle, marginTop:6}}/>
           )}
         </div>

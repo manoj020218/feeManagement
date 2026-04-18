@@ -3,8 +3,13 @@ import { useAuthStore } from '@/core/store/useAuthStore';
 import { th } from '@/data/institutionTypes';
 
 export default function MemberSettings() {
-  const { user, memberships, removeMembership } = useAppStore();
-  const { logout } = useAuthStore();
+  const memberships = useAppStore(s => s.memberships);
+const setActiveRole = useAppStore(s => s.setActiveRole);
+const institutions = useAppStore(s => s.institutions);
+const user = useAppStore(s => s.user);                    // ✅ added
+const removeMembership = useAppStore(s => s.removeMembership); // ✅ added
+  // Individual selector from useAuthStore
+const logout = useAuthStore(s => s.logout);               // ✅ fixed
 
   return (
     <div style={{padding:'16px 16px 0'}}>

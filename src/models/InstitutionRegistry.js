@@ -19,11 +19,12 @@ const registrySchema = new mongoose.Schema({
   adminName:   { type: String, default: '' },
   adminPhone:  { type: String, default: null },
   plans:        [planSchema],
-  description:  { type: String, default: '', maxlength: 500 },  // promotional description
-  logo:         { type: String, default: null },                 // base64 data-url
-  achievements: [{ type: String }],                             // short strings e.g. "Est. 2010"
-  publishedAt:  { type: Date, default: Date.now },
-  updatedAt:    { type: Date, default: Date.now },
+  description:     { type: String, default: '', maxlength: 500 },  // promotional description
+  logo:            { type: String, default: null },                 // base64 data-url
+  achievements:    [{ type: String }],                             // short strings e.g. "Est. 2010"
+  requireApproval: { type: Boolean, default: false },              // admin must approve each join
+  publishedAt:     { type: Date, default: Date.now },
+  updatedAt:       { type: Date, default: Date.now },
 }, { versionKey: false });
 
 registrySchema.index({ adminUserId: 1 });

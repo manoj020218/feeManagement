@@ -53,6 +53,8 @@ export interface InstTypeConfig {
   plans: string[];
   fees: number[];
   rTitle: string;
+  /** Label for the per-member identifier field (e.g. "Apartment No.", "Class / Section") */
+  identifier?: string;
 }
 
 // ─── Institution ───────────────────────────────────────────
@@ -86,6 +88,16 @@ export interface Institution {
   template?: ReceiptTemplate;
   payQRs?: PayQR[];
   createdAt: string;
+  /** Grace period in days before a due member is marked overdue (default 0) */
+  gracePeriod?: number;
+  /** Track running credit/arrears balance per member (default true) */
+  trackBalance?: boolean;
+  /** Auto-advance nextDue when overpayment covers full extra cycle(s) (default true) */
+  autoAdvanceDue?: boolean;
+  /** Members must submit a join request; admin approves/rejects (default false) */
+  requireApproval?: boolean;
+  status?: 'active' | 'archived';   // default 'active'
+  archivedAt?: string;               // ISO date when archived
 }
 
 // ─── Member ────────────────────────────────────────────────
@@ -98,6 +110,10 @@ export interface Member {
   name: string;
   phone?: string;
   address?: string;
+  /** Type-specific identifier: Apartment No., Class/Section, Room No., etc. */
+  identifier?: string;
+  /** Running balance: positive = credit (advance), negative = arrears */
+  balance?: number;
   plan: string;
   fee: number;
   joinDate: string;
@@ -122,6 +138,7 @@ export interface Transaction {
   period?: string;
   note?: string;
   receiptNo?: string;
+  txnId?: string;
 }
 
 // ─── Membership (joined as member) ────────────────────────
@@ -164,6 +181,18 @@ export interface AppState {
   activeRole: 'admin' | 'member';
   defaultCountry: string;
   settings: AppSettings;
+}
+
+// ─── Join Request ──────────────────────────────────────────
+export interface JoinRequest {
+  _id: string;
+  inviteCode: string;
+  name: string;
+  phone: string;
+  plan: string;
+  status: 'pending' | 'approved' | 'rejected' | 'hold';
+  reason?: string;
+  createdAt: string;
 }
 
 // ─── Country ───────────────────────────────────────────────

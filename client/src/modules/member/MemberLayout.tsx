@@ -16,7 +16,9 @@ const NAV_ITEMS = [
 export default function MemberLayout() {
   const [tab, setTab] = useState('Fees');
   const [annCount, setAnnCount] = useState(0);
-  const { memberships, setActiveRole, institutions } = useAppStore();
+ const memberships = useAppStore(s => s.memberships);
+const setActiveRole = useAppStore(s => s.setActiveRole);
+const institutions = useAppStore(s => s.institutions);
 
   const navItems = NAV_ITEMS.map(n =>
     n.id === 'Announce' && annCount > 0

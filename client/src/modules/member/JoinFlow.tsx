@@ -16,26 +16,69 @@ interface RegistryResult {
   adminName: string;
   adminPhone: string | null;
   plans: { name: string; fee: number; freq: string }[];
+  requireApproval?: boolean;
 }
 
+// localStorage key for a pending join request
+function jrKey(inviteCode: string) { return `ff_jr_${inviteCode}`; }
+
 export default function JoinFlow({ onJoined }: Props) {
-  const { memberships, addMembership } = useAppStore();
+  const memberships = useAppStore(s => s.memberships);
+  const addMembership = useAppStore(s => s.addMembership);
+  const user = useAppStore(s => s.user);
   const { toast } = useUIStore();
 
   const [code,    setCode]    = useState('');
-  const [step,    setStep]    = useState<'code' | 'plan'>('code');
+  const [step,    setStep]    = useState<'code' | 'plan' | 'request' | 'status'>('code');
   const [loading, setLoading] = useState(false);
   const [found,   setFound]   = useState<RegistryResult | null>(null);
-  const [selPlan, setSelPlan] = useState(0);   // index into found.plans
+  const [selPlan, setSelPlan] = useState(0);
+
+  // Request step fields
+  const [reqName,  setReqName]  = useState('');
+  const [reqPhone, setReqPhone] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // Status step
+  const [reqStatus,  setReqStatus]  = useState<'pending'|'approved'|'rejected'|'hold'>('pending');
+  const [reqReason,  setReqReason]  = useState('');
+  const [checking,   setChecking]   = useState(false);
 
   async function handleLookup() {
     const trimmed = code.trim().toUpperCase();
     if (trimmed.length < 4) { toast('Enter the invite code', 'warn'); return; }
 
-    // Already joined?
     if (memberships.find(m => m.inviteCode === trimmed)) {
       toast('You already joined this institution', 'warn');
       return;
+    }
+
+    // Check if we already have a pending request for this code
+    const saved = localStorage.getItem(jrKey(trimmed));
+    if (saved) {
+      try {
+        const { phone } = JSON.parse(saved) as { phone: string };
+        setLoading(true);
+        const data = await api<RegistryResult>('GET', `/institutions/lookup/${trimmed}`);
+        setLoading(false);
+        if (!data) { toast('Institution not found — check the invite code', 'err'); return; }
+        setFound(data);
+        setReqPhone(phone);
+        // Re-poll status
+        const statusData = await api<{ status: typeof reqStatus; reason: string }>(
+          'GET', `/join-requests/status/${encodeURIComponent(phone)}/${trimmed}`
+        );
+        if (statusData) {
+          setReqStatus(statusData.status);
+          setReqReason(statusData.reason ?? '');
+          if (statusData.status === 'approved') {
+            handleApprovedJoin(data, phone);
+            return;
+          }
+        }
+        setStep('status');
+        return;
+      } catch { /* proceed to normal lookup */ }
     }
 
     setLoading(true);
@@ -81,7 +124,100 @@ export default function JoinFlow({ onJoined }: Props) {
     onJoined();
   }
 
+  function handleApprovedJoin(inst: RegistryResult, phone: string) {
+    const planName = localStorage.getItem(jrKey(inst.inviteCode) + '_plan') ?? '';
+    const matchedPlan = inst.plans.find(p => p.name === planName) ?? inst.plans[0];
+    const plan = matchedPlan ?? { name: 'Standard', fee: 0, freq: 'monthly' };
+    const id   = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const today = todayISO();
+
+    addMembership({
+      id,
+      instName:    inst.name,
+      instType:    inst.type,
+      instAddress: inst.address || undefined,
+      inviteCode:  inst.inviteCode,
+      myPlan:      plan.name,
+      myFee:       plan.fee,
+      freq:        (plan.freq as PayFreq) || 'monthly',
+      joinDate:    today,
+      nextDue:     addFreq(today, (plan.freq as PayFreq) || 'monthly'),
+      status:      'due',
+      adminName:   inst.adminName || undefined,
+      adminPhone:  inst.adminPhone || undefined,
+    });
+
+    // Clean up localStorage
+    localStorage.removeItem(jrKey(inst.inviteCode));
+    localStorage.removeItem(jrKey(inst.inviteCode) + '_plan');
+
+    toast(`You're in! Welcome to ${inst.name}`, 'ok');
+    setCode('');
+    setFound(null);
+    setStep('code');
+    onJoined();
+  }
+
+  // After plan selected, member proceeds — either instant join or request flow
+  function handlePlanConfirm() {
+    if (!found) return;
+    if (found.requireApproval) {
+      // Pre-fill from logged-in user profile
+      setReqName(user?.name ?? '');
+      setReqPhone(user?.phone ?? '');
+      setStep('request');
+    } else {
+      handleJoin();
+    }
+  }
+
+  async function handleSubmitRequest() {
+    if (!found) return;
+    if (!reqName.trim()) { toast('Enter your name', 'warn'); return; }
+    if (!reqPhone.trim()) { toast('Enter your phone number', 'warn'); return; }
+
+    const plan = found.plans[selPlan] ?? { name: '', fee: 0, freq: 'monthly' };
+    setSubmitting(true);
+    const data = await api<{ id: string; status: string }>(
+      'POST', '/join-requests',
+      { inviteCode: found.inviteCode, name: reqName.trim(), phone: reqPhone.trim(), plan: plan.name }
+    );
+    setSubmitting(false);
+
+    if (!data) { toast('Could not send request — check connection', 'err'); return; }
+
+    // Save to localStorage so we can resume later
+    localStorage.setItem(jrKey(found.inviteCode), JSON.stringify({ phone: reqPhone.trim(), inviteCode: found.inviteCode }));
+    localStorage.setItem(jrKey(found.inviteCode) + '_plan', plan.name);
+
+    setReqStatus('pending');
+    setReqReason('');
+    setStep('status');
+  }
+
+  async function handleCheckStatus() {
+    if (!found) return;
+    setChecking(true);
+    const data = await api<{ status: typeof reqStatus; reason: string }>(
+      'GET', `/join-requests/status/${encodeURIComponent(reqPhone)}/${found.inviteCode}`
+    );
+    setChecking(false);
+    if (!data) { toast('Could not check — try again', 'warn'); return; }
+    setReqStatus(data.status);
+    setReqReason(data.reason ?? '');
+
+    if (data.status === 'approved') {
+      handleApprovedJoin(found, reqPhone);
+    }
+  }
+
   const t = found ? th(found.type) : null;
+
+  const inp: React.CSSProperties = {
+    width: '100%', background: 'var(--s2)', border: '1.5px solid var(--border)',
+    borderRadius: 'var(--r2)', padding: '11px 14px', color: 'var(--text)',
+    fontFamily: 'Outfit,sans-serif', fontSize: '.88rem', outline: 'none',
+  };
 
   // ── Step 1: Enter code ─────────────────────────────────
   if (step === 'code') return (
@@ -121,7 +257,7 @@ export default function JoinFlow({ onJoined }: Props) {
     </div>
   );
 
-  // ── Step 2: Confirm & pick plan ────────────────────────
+  // ── Step 2: Pick plan ──────────────────────────────────
   if (step === 'plan' && found && t) {
     const plan = found.plans[selPlan];
     return (
@@ -152,6 +288,16 @@ export default function JoinFlow({ onJoined }: Props) {
               {found.adminPhone && <> · {found.adminPhone}</>}
             </div>
           )}
+
+          {found.requireApproval && (
+            <div style={{
+              fontSize: '.75rem', padding: '7px 11px', borderRadius: 8, marginTop: 4,
+              background: 'rgba(255,200,0,.1)', border: '1px solid rgba(255,200,0,.25)',
+              color: 'var(--yellow)',
+            }}>
+              Joining requires admin approval. You'll submit a request after picking a plan.
+            </div>
+          )}
         </div>
 
         {/* Plan selection */}
@@ -172,9 +318,7 @@ export default function JoinFlow({ onJoined }: Props) {
               >
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '.9rem' }}>{p.name}</div>
-                  <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginTop: 2 }}>
-                    {p.freq ?? 'monthly'}
-                  </div>
+                  <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginTop: 2 }}>{p.freq ?? 'monthly'}</div>
                 </div>
                 <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--member-accent)' }}>
                   ₹{p.fee.toLocaleString()}
@@ -194,20 +338,119 @@ export default function JoinFlow({ onJoined }: Props) {
             background: 'rgba(100,200,255,.08)', border: '1px solid rgba(100,200,255,.2)',
             fontSize: '.8rem', color: 'var(--muted)',
           }}>
-            You'll pay <strong style={{ color: 'var(--member-accent)' }}>₹{plan.fee.toLocaleString()}</strong> {plan.freq ?? 'monthly'} for <strong style={{ color: 'var(--text)' }}>{plan.name}</strong>
+            You'll pay <strong style={{ color: 'var(--member-accent)' }}>₹{plan.fee.toLocaleString()}</strong>{' '}
+            {plan.freq ?? 'monthly'} for <strong style={{ color: 'var(--text)' }}>{plan.name}</strong>
           </div>
         )}
 
         <button
           className="btn p"
           style={{ width: '100%', marginBottom: 10, background: 'var(--member-accent)' }}
-          onClick={handleJoin}
+          onClick={handlePlanConfirm}
         >
-          Confirm & Join →
+          {found.requireApproval ? 'Continue — Enter Details →' : 'Confirm & Join →'}
         </button>
         <button className="btn g" style={{ width: '100%' }}
           onClick={() => { setStep('code'); setFound(null); }}>
           ← Back
+        </button>
+      </div>
+    );
+  }
+
+  // ── Step 3: Request (name + phone) — approval mode only ──
+  if (step === 'request' && found && t) {
+    const plan = found.plans[selPlan] ?? { name: 'Standard', fee: 0, freq: 'monthly' };
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ fontWeight: 800, fontSize: '1rem', marginBottom: 4 }}>
+          {t.icon} {found.name}
+        </div>
+        <div style={{ fontSize: '.78rem', color: 'var(--muted)', marginBottom: 20 }}>
+          Plan: <strong style={{ color: 'var(--text)' }}>{plan.name}</strong>
+          {plan.fee > 0 && <> · ₹{plan.fee.toLocaleString()} {plan.freq}</>}
+        </div>
+
+        <div style={{
+          fontSize: '.75rem', padding: '8px 12px', borderRadius: 8, marginBottom: 18,
+          background: 'rgba(255,200,0,.1)', border: '1px solid rgba(255,200,0,.25)', color: 'var(--yellow)',
+        }}>
+          The admin will review your request. You'll be notified once approved.
+        </div>
+
+        <div className="fld">
+          <label>Your Name *</label>
+          <input value={reqName} onChange={e => setReqName(e.target.value)}
+            placeholder="Full name" style={inp}/>
+        </div>
+        <div className="fld">
+          <label>Phone Number *</label>
+          <input value={reqPhone} onChange={e => setReqPhone(e.target.value)}
+            placeholder="10-digit mobile" type="tel" inputMode="numeric" style={inp}/>
+        </div>
+
+        <button className="btn p"
+          style={{ width: '100%', marginBottom: 10, background: 'var(--member-accent)' }}
+          onClick={handleSubmitRequest} disabled={submitting}>
+          {submitting ? 'Sending…' : 'Send Join Request →'}
+        </button>
+        <button className="btn g" style={{ width: '100%' }}
+          onClick={() => setStep('plan')}>
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
+  // ── Step 4: Status card — member polls result ──────────
+  if (step === 'status' && found) {
+    const statusInfo: Record<string, { icon: string; color: string; msg: string }> = {
+      pending:  { icon: '⏳', color: 'var(--yellow)',  msg: 'Your request is under review. Check back soon.' },
+      approved: { icon: '✅', color: 'var(--green)',   msg: "You're approved! Tap below to activate." },
+      rejected: { icon: '❌', color: 'var(--red)',     msg: reqReason ? `Not approved — ${reqReason}` : 'Your request was not approved.' },
+      hold:     { icon: '⏸', color: 'var(--muted)',   msg: reqReason ? `On hold — ${reqReason}. Contact your admin.` : 'Your request is on hold. Contact your admin.' },
+    };
+    const info = statusInfo[reqStatus] ?? statusInfo.pending;
+
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ fontWeight: 800, fontSize: '1rem', marginBottom: 4 }}>
+          {found.name}
+        </div>
+        <div style={{ fontSize: '.78rem', color: 'var(--muted)', marginBottom: 20 }}>
+          Join request sent · {reqPhone}
+        </div>
+
+        <div style={{
+          padding: '20px 16px', borderRadius: 12, textAlign: 'center', marginBottom: 20,
+          background: `${info.color}12`, border: `1.5px solid ${info.color}40`,
+        }}>
+          <div style={{ fontSize: '2.8rem', marginBottom: 10 }}>{info.icon}</div>
+          <div style={{ fontWeight: 800, fontSize: '.95rem', color: info.color, marginBottom: 6 }}>
+            {reqStatus.toUpperCase()}
+          </div>
+          <div style={{ fontSize: '.82rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+            {info.msg}
+          </div>
+        </div>
+
+        {reqStatus === 'approved' ? (
+          <button className="btn p"
+            style={{ width: '100%', background: 'var(--green)', marginBottom: 10 }}
+            onClick={() => handleApprovedJoin(found, reqPhone)}>
+            Activate Membership →
+          </button>
+        ) : (
+          <button className="btn p"
+            style={{ width: '100%', marginBottom: 10, background: 'var(--member-accent)' }}
+            onClick={handleCheckStatus} disabled={checking}>
+            {checking ? 'Checking…' : 'Check Status'}
+          </button>
+        )}
+
+        <button className="btn g" style={{ width: '100%' }}
+          onClick={() => { setStep('code'); setCode(''); setFound(null); }}>
+          Close
         </button>
       </div>
     );

@@ -5,6 +5,7 @@ import { useUIStore } from '@/core/store/useUIStore';
 import { api } from '@/core/services/api';
 import { normalizePhone, validatePhone } from '@/utils/phoneNormalizer';
 import PinInput from '@/modules/shared/PinInput';
+import ShareBanner from '@/modules/member/ShareBanner';
 
 interface Props {
   accentColor?: string;
@@ -33,7 +34,8 @@ function compressImage(file: File): Promise<string> {
 }
 
 export default function ProfilePage({ accentColor = 'var(--accent)' }: Props) {
-  const { user, updateSettings } = useAppStore();
+  const user = useAppStore(s => s.user);
+const updateSettings = useAppStore(s => s.updateSettings);
   const { logout } = useAuthStore();
   const { toast } = useUIStore();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -246,12 +248,15 @@ export default function ProfilePage({ accentColor = 'var(--accent)' }: Props) {
       {!editing && (
         <button className="btn g"
           style={{ color: 'var(--red)', borderColor: 'rgba(255,92,92,.2)', marginBottom: 24, width: '100%' }}
-          onClick={() => { if (confirm('Log out?')) logout(); }}>
+          onClick={() => { if (confirm('Log out?')) logout() ; }}>
           Log Out
         </button>
       )}
 
       {/* PIN modal */}
+      {/* Compact share banner */}
+      <ShareBanner compact/>
+
       {pinOpen && (
         <div className="mo open" onClick={e => { if (e.target === e.currentTarget) setPinOpen(false); }}>
           <div className="mo-box">

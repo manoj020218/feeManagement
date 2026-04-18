@@ -11,11 +11,20 @@ import QRCodeLib from 'qrcode';
 import { performDriveBackup } from '@/core/services/driveService';
 
 export default function SettingsPage() {
-  const {
-    user, institutions, memberships, defaultCountry,
-    activeInstId, setDefaultCountry, addInstitution, setActiveInst,
-    updateInstitution, deleteInstitution, settings, updateSettings,
-  } = useAppStore();
+  // ✅ Individual selectors – no whole‑store destructuring
+  const user = useAppStore(s => s.user);
+  const institutions = useAppStore(s => s.institutions);
+  const memberships = useAppStore(s => s.memberships);
+  const defaultCountry = useAppStore(s => s.defaultCountry);
+  const activeInstId = useAppStore(s => s.activeInstId);
+  const setDefaultCountry = useAppStore(s => s.setDefaultCountry);
+  const addInstitution = useAppStore(s => s.addInstitution);
+  const setActiveInst = useAppStore(s => s.setActiveInst);
+  const updateInstitution = useAppStore(s => s.updateInstitution);
+  const deleteInstitution = useAppStore(s => s.deleteInstitution);
+  const settings = useAppStore(s => s.settings);
+  const updateSettings = useAppStore(s => s.updateSettings);
+
   const { logout } = useAuthStore();
   const { toast } = useUIStore();
 
@@ -249,6 +258,90 @@ export default function SettingsPage() {
         ))}
         <button className="btn g" style={{margin:'10px 0 0'}} onClick={() => setAddInstOpen(true)}>+ Add Institution</button>
       </div>
+
+      {/* Fee Rules — per institution */}
+      {institutions.length > 0 && (
+        <div className="card" style={{marginBottom:10}}>
+          <div className="card-hdr">Fee Rules</div>
+          {institutions.map(inst => (
+            <div key={inst.id} style={{borderBottom:'1px solid var(--border)',padding:'12px 0'}}>
+              <div style={{fontSize:'.82rem',fontWeight:700,marginBottom:10}}>
+                {th(inst.type).icon} {inst.name}
+              </div>
+
+              {/* Grace Period */}
+              <div className="tgl-row" style={{marginBottom:10,border:'none'}}>
+                <div>
+                  <div style={{fontSize:'.85rem',fontWeight:600}}>Grace Period</div>
+                  <div style={{fontSize:'.7rem',color:'var(--muted)',marginTop:2}}>Days after due date before marking overdue</div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <input
+                    type="number" min={0} max={60}
+                    value={inst.gracePeriod ?? 0}
+                    onChange={e => updateInstitution(inst.id, { gracePeriod: Math.max(0, parseInt(e.target.value) || 0) })}
+                    style={{
+                      width:56,background:'var(--s2)',border:'1.5px solid var(--border)',
+                      borderRadius:'var(--r2)',padding:'6px 10px',color:'var(--text)',
+                      fontFamily:'Outfit,sans-serif',fontSize:'.88rem',outline:'none',textAlign:'center',
+                    }}
+                  />
+                  <span style={{fontSize:'.78rem',color:'var(--muted)'}}>days</span>
+                </div>
+              </div>
+
+              {/* Track balance */}
+              <div className="tgl-row" style={{border:'none',marginBottom: inst.trackBalance !== false ? 10 : 0}}>
+                <div>
+                  <div style={{fontSize:'.85rem',fontWeight:600}}>Track Advance & Arrears</div>
+                  <div style={{fontSize:'.7rem',color:'var(--muted)',marginTop:2}}>Carry forward overpayments and short payments</div>
+                </div>
+                <label className="tgl-switch">
+                  <input type="checkbox"
+                    checked={inst.trackBalance !== false}
+                    onChange={e => updateInstitution(inst.id, { trackBalance: e.target.checked })}/>
+                  <span className="tgl-track"/>
+                </label>
+              </div>
+
+              {/* Auto-advance — only when trackBalance is ON */}
+              {inst.trackBalance !== false && (
+                <div className="tgl-row" style={{border:'none',marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:'.85rem',fontWeight:600}}>Auto-advance Next Due</div>
+                    <div style={{fontSize:'.7rem',color:'var(--muted)',marginTop:2}}>Push due date forward when bulk payment covers extra cycle(s)</div>
+                  </div>
+                  <label className="tgl-switch">
+                    <input type="checkbox"
+                      checked={inst.autoAdvanceDue !== false}
+                      onChange={e => updateInstitution(inst.id, { autoAdvanceDue: e.target.checked })}/>
+                    <span className="tgl-track"/>
+                  </label>
+                </div>
+              )}
+
+              {/* Require Approval for new members */}
+              <div className="tgl-row" style={{border:'none'}}>
+                <div>
+                  <div style={{fontSize:'.85rem',fontWeight:600}}>Require Approval for New Members</div>
+                  <div style={{fontSize:'.7rem',color:'var(--muted)',marginTop:2}}>Members must request to join; you approve or reject</div>
+                </div>
+                <label className="tgl-switch">
+                  <input type="checkbox"
+                    checked={inst.requireApproval === true}
+                    onChange={e => {
+                      const val = e.target.checked;
+                      updateInstitution(inst.id, { requireApproval: val });
+                      // Sync to published registry so members see the flag when looking up
+                      api('PUT', `/institutions/${inst.inviteCode}`, { requireApproval: val });
+                    }}/>
+                  <span className="tgl-track"/>
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* App Info */}
       <div className="card" style={{marginBottom:10}}>

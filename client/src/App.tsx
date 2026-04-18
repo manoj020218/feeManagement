@@ -10,8 +10,22 @@ type AppPhase = 'loading' | 'onboarding' | 'app';
 
 export default function App() {
   const [phase, setPhase] = useState<AppPhase>('loading');
-  const { user, activeRole, settings, updateSettings, setActiveRole, institutions } = useAppStore();
+  //const { user, activeRole, settings, updateSettings, setActiveRole, institutions } = useAppStore();
+  // ✅ Individual selectors – no whole‑store destructuring
+  const user = useAppStore(s => s.user);
+  const activeRole = useAppStore(s => s.activeRole);
+  const settings = useAppStore(s => s.settings);
+  const updateSettings = useAppStore(s => s.updateSettings);
+  const setActiveRole = useAppStore(s => s.setActiveRole);
+  const institutions = useAppStore(s => s.institutions);
   const { hydrateFromAPI } = useAuthStore();
+
+  // When user logs out (user becomes null while app is active), go back to onboarding
+  useEffect(() => {
+    if (phase === 'app' && !user) {
+      setPhase('onboarding');
+    }
+  }, [user, phase]);
 
   useEffect(() => {
     async function init() {

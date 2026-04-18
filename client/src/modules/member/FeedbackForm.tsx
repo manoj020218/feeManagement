@@ -4,7 +4,7 @@ import { useUIStore } from '@/core/store/useUIStore';
 import { api } from '@/core/services/api';
 
 export default function FeedbackForm() {
-  const { memberships } = useAppStore();
+  const memberships = useAppStore(s => s.memberships);
   const { toast } = useUIStore();
 
   const [selCode, setSelCode] = useState(memberships[0]?.inviteCode ?? '');

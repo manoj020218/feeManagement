@@ -5,7 +5,8 @@ import { api, APP_VERSION, API_BASE } from '@/core/services/api';
 import { useState } from 'react';
 
 export default function MemberProfilePage() {
-  const { settings, updateSettings } = useAppStore();
+  const settings = useAppStore(s => s.settings);
+  const updateSettings = useAppStore(s => s.updateSettings);
   const [sessions, setSessions] = useState<{ id:string; deviceLabel:string; ip:string; lastSeen:string; isCurrent:boolean }[]>([]);
   const [sessOpen, setSessOpen] = useState(false);
 

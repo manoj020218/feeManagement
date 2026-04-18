@@ -19,6 +19,11 @@ interface AppStore extends AppState {
   updateInstitution: (id: string, patch: Partial<Institution>) => void;
   deleteInstitution: (id: string) => void;
 
+  // NEW: Archive / Restore / Permanent Delete
+  archiveInstitution: (id: string) => void;
+  restoreInstitution: (id: string) => void;
+  permanentlyDeleteInstitution: (id: string) => void;
+
   // Member CRUD
   getMembers: (instId: string) => Member[];
   addMember: (member: Member) => void;
@@ -97,7 +102,9 @@ export const useAppStore = create<AppStore>()(
 
       // ── Institutions ────────────────────────────────────
       addInstitution: (inst) => {
-        set(s => ({ institutions: [...s.institutions, inst] }));
+        // Ensure new institution has status = 'active'
+        const newInst = { ...inst, status: 'active' as const, archivedAt: undefined };
+        set(s => ({ institutions: [...s.institutions, newInst] }));
         persist();
       },
 
@@ -116,6 +123,44 @@ export const useAppStore = create<AppStore>()(
             institutions: s.institutions.filter(i => i.id !== id),
             members,
             transactions,
+            activeInstId: s.activeInstId === id ? (s.institutions.find(i => i.id !== id)?.id ?? null) : s.activeInstId,
+          };
+        });
+        persist();
+      },
+
+      // ── NEW: Archive / Restore / Permanent Delete ────────
+      archiveInstitution: (id) => {
+        set(s => ({
+          institutions: s.institutions.map(i =>
+            i.id === id
+              ? { ...i, status: 'archived', archivedAt: new Date().toISOString() }
+              : i
+          ),
+        }));
+        persist();
+      },
+
+      restoreInstitution: (id) => {
+        set(s => ({
+          institutions: s.institutions.map(i =>
+            i.id === id
+              ? { ...i, status: 'active', archivedAt: undefined }
+              : i
+          ),
+        }));
+        persist();
+      },
+
+      permanentlyDeleteInstitution: (id) => {
+        set(s => {
+          // Remove members and transactions for this institution
+          const { [id]: _m, ...restMembers } = s.members;
+          const { [id]: _t, ...restTransactions } = s.transactions;
+          return {
+            institutions: s.institutions.filter(i => i.id !== id),
+            members: restMembers,
+            transactions: restTransactions,
             activeInstId: s.activeInstId === id ? (s.institutions.find(i => i.id !== id)?.id ?? null) : s.activeInstId,
           };
         });

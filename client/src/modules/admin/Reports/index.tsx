@@ -4,7 +4,12 @@ import { formatCurrency } from '@/data/countries';
 import { fmtDate } from '@/utils/dateHelpers';
 
 export default function ReportsPage() {
-  const { institutions, activeInstId, getMembers, getTransactions, defaultCountry } = useAppStore();
+   // ✅ Individual selectors – no whole‑store destructuring
+  const institutions = useAppStore(s => s.institutions);
+  const activeInstId = useAppStore(s => s.activeInstId);
+  const getMembers = useAppStore(s => s.getMembers);
+  const getTransactions = useAppStore(s => s.getTransactions);
+  const defaultCountry = useAppStore(s => s.defaultCountry);
   const inst    = institutions.find(i => i.id === activeInstId);
   const members = inst ? getMembers(inst.id) : [];
   const txns    = inst ? getTransactions(inst.id) : [];

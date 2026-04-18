@@ -60,13 +60,14 @@ router.get('/lookup/:code', async (req, res) => {
       return res.status(404).json({ error: 'Institution not found. Check the invite code.' });
     }
     res.json({
-      inviteCode:  doc.inviteCode,
-      name:        doc.name,
-      type:        doc.type,
-      address:     doc.address,
-      adminName:   doc.adminName,
-      adminPhone:  doc.adminPhone,
-      plans:       doc.plans,
+      inviteCode:      doc.inviteCode,
+      name:            doc.name,
+      type:            doc.type,
+      address:         doc.address,
+      adminName:       doc.adminName,
+      adminPhone:      doc.adminPhone,
+      plans:           doc.plans,
+      requireApproval: doc.requireApproval ?? false,
     });
   } catch (err) {
     console.error('Lookup error:', err);
@@ -83,13 +84,14 @@ router.put('/:code', requireAuth, async (req, res) => {
     if (doc.adminUserId !== String(req.user._id)) {
       return res.status(403).json({ error: 'Not your institution' });
     }
-    const { name, address, description, logo, achievements, plans } = req.body;
-    if (name)                    doc.name         = name.trim();
-    if (address !== undefined)   doc.address      = address.trim();
-    if (description !== undefined) doc.description = description.slice(0, 500);
-    if (logo !== undefined)      doc.logo         = logo || null;
-    if (Array.isArray(achievements)) doc.achievements = achievements.slice(0, 10);
-    if (Array.isArray(plans))    doc.plans        = plans;
+    const { name, address, description, logo, achievements, plans, requireApproval } = req.body;
+    if (name)                        doc.name            = name.trim();
+    if (address !== undefined)       doc.address         = address.trim();
+    if (description !== undefined)   doc.description     = description.slice(0, 500);
+    if (logo !== undefined)          doc.logo            = logo || null;
+    if (Array.isArray(achievements)) doc.achievements    = achievements.slice(0, 10);
+    if (Array.isArray(plans))        doc.plans           = plans;
+    if (requireApproval !== undefined) doc.requireApproval = !!requireApproval;
     doc.updatedAt = new Date();
     await doc.save();
     res.json({ ok: true, registry: doc });

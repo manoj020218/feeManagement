@@ -14,6 +14,7 @@ const analyticsRouter    = require('./routes/analytics');
 const institutionsRouter = require('./routes/institutions');
 const announcementsRouter = require('./routes/announcements');
 const feedbackRouter     = require('./routes/feedback');
+const joinRequestsRouter = require('./routes/joinRequests');
 
 const path = require('path');
 const app  = express();
@@ -103,6 +104,7 @@ app.use('/api/auth',          authRouter);
 app.use('/api/users',         usersRouter);
 app.use('/api/analytics',     analyticsRouter);
 app.use('/api/institutions',  institutionsRouter);
+app.use('/api/join-requests', joinRequestsRouter);
 app.use('/api/announcements', announcementsRouter);
 app.use('/api/feedback',      feedbackRouter);
 
