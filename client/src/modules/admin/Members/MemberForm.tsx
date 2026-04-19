@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAppStore } from '@/core/store/useAppStore';
 import { useUIStore } from '@/core/store/useUIStore';
+import { api } from '@/core/services/api';
 import { th } from '@/data/institutionTypes';
 import { normalizePhone } from '@/utils/phoneNormalizer';
 import { todayISO, addFreq } from '@/utils/dateHelpers';
@@ -30,15 +31,30 @@ export default function MemberForm({ instId, member, onClose }: Props) {
   const t = inst ? th(inst.type) : th('other');
   const isEdit = !!member;
 
+  // --- Add these four lines ---
   const [name,       setName]       = useState(member?.name       ?? '');
   const [phone,      setPhone]      = useState(member?.phone      ?? '');
   const [address,    setAddress]    = useState(member?.address    ?? '');
   const [identifier, setIdentifier] = useState(member?.identifier ?? '');
-  const isCustomPlan = !!member && !t.plans.includes(member.plan);
-  const [plan,       setPlan]       = useState(isCustomPlan ? '__custom__' : (member?.plan ?? (t.plans[0] ?? '')));
+  // ----------------------------
+
+  // Merge inst.plans (from publish sync) with type config defaults, deduped by name
+  const mergedPlans: { name: string; fee: number; freq: string }[] = (() => {
+    const result: { name: string; fee: number; freq: string }[] = [];
+    const seen = new Set<string>();
+    // inst.plans (admin-configured, may include custom ones) take priority
+    (inst?.plans ?? []).forEach(p => { if (!seen.has(p.name)) { seen.add(p.name); result.push(p); } });
+    // fill in type defaults for plans not already in inst.plans
+    t.plans.forEach((p, i) => { if (!seen.has(p)) { seen.add(p); result.push({ name: p, fee: t.fees[i] ?? 0, freq: 'monthly' }); } });
+    return result;
+  })();
+
+  const allPlanNames = mergedPlans.map(p => p.name);
+  const isCustomPlan = !!member && !allPlanNames.includes(member.plan);
+  const [plan,       setPlan]       = useState(isCustomPlan ? '__custom__' : (member?.plan ?? (mergedPlans[0]?.name ?? '')));
   const [customPlan, setCustomPlan] = useState(isCustomPlan ? (member?.plan ?? '') : '');
-  const [fee,      setFee]      = useState(String(member?.fee ?? (t.fees[0] ?? 0)));
-  const [freq,     setFreq]     = useState<PayFreq>(member?.freq     ?? 'monthly');
+  const [fee,      setFee]      = useState(String(member?.fee ?? (mergedPlans[0]?.fee ?? 0)));
+  const [freq,     setFreq]     = useState<PayFreq>(member?.freq     ?? ((mergedPlans[0]?.freq as PayFreq) ?? 'monthly'));
   const [joinDate, setJoinDate] = useState(member?.joinDate ?? todayISO());
   const [nextDue,  setNextDue]  = useState(member?.nextDue  ?? '');
   const [status,   setStatus]   = useState<FeeStatus>(member?.status ?? 'due');
@@ -59,6 +75,10 @@ export default function MemberForm({ instId, member, onClose }: Props) {
         plan: resolvedPlan, fee: feeNum, freq, joinDate, nextDue: computedNextDue, status, note: note.trim() || undefined,
       });
       toast('Member updated', 'ok');
+      // Update plan lock on VPS if published and phone exists
+      if (inst?.isPublished && normPhone) {
+        api('PUT', `/institutions/${inst.inviteCode}/pre-members`, { phone: normPhone, plan: resolvedPlan, fee: feeNum, freq });
+      }
     } else {
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
       addMember({
@@ -68,6 +88,10 @@ export default function MemberForm({ instId, member, onClose }: Props) {
         plan: resolvedPlan, fee: feeNum, freq, joinDate, nextDue: computedNextDue, status, note: note.trim() || undefined,
       });
       toast('Member added', 'ok');
+      // Register plan lock on VPS so member cannot change plan at join time
+      if (inst?.isPublished && normPhone) {
+        api('PUT', `/institutions/${inst.inviteCode}/pre-members`, { phone: normPhone, plan: resolvedPlan, fee: feeNum, freq });
+      }
     }
     onClose();
   }
@@ -139,9 +163,20 @@ export default function MemberForm({ instId, member, onClose }: Props) {
         </div>
         <div className="fld">
           <label>{t.plan}</label>
-          <select value={plan} onChange={e=>setPlan(e.target.value)} style={selStyle}>
-            {t.plans.map((p,i) => (
-              <option key={p} value={p} onClick={() => setFee(String(t.fees[i] ?? 0))}>{p}</option>
+          <select
+            value={plan}
+            onChange={e => {
+              const val = e.target.value;
+              setPlan(val);
+              if (val !== '__custom__') {
+                const entry = mergedPlans.find(p => p.name === val);
+                if (entry) { setFee(String(entry.fee)); setFreq((entry.freq as PayFreq) ?? 'monthly'); }
+              }
+            }}
+            style={selStyle}
+          >
+            {mergedPlans.map(p => (
+              <option key={p.name} value={p.name}>{p.name}</option>
             ))}
             <option value="__custom__">Custom…</option>
           </select>

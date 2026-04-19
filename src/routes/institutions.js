@@ -51,7 +51,8 @@ router.post('/publish', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/institutions/lookup/:code  (public — no auth needed)
+// GET /api/institutions/lookup/:code?phone=PHONE  (public — no auth needed)
+// If phone is provided and matches a preMembers entry, returns preAssigned plan lock.
 router.get('/lookup/:code', async (req, res) => {
   try {
     const code = req.params.code.toUpperCase().trim();
@@ -59,6 +60,15 @@ router.get('/lookup/:code', async (req, res) => {
     if (!doc) {
       return res.status(404).json({ error: 'Institution not found. Check the invite code.' });
     }
+
+    // Check for pre-assigned plan lock
+    const phone = req.query.phone ? String(req.query.phone).trim() : null;
+    let preAssigned = null;
+    if (phone && doc.preMembers && doc.preMembers.length > 0) {
+      const pm = doc.preMembers.find(p => p.phone === phone);
+      if (pm) preAssigned = { plan: pm.plan, fee: pm.fee, freq: pm.freq };
+    }
+
     res.json({
       inviteCode:      doc.inviteCode,
       name:            doc.name,
@@ -68,6 +78,7 @@ router.get('/lookup/:code', async (req, res) => {
       adminPhone:      doc.adminPhone,
       plans:           doc.plans,
       requireApproval: doc.requireApproval ?? false,
+      preAssigned,
     });
   } catch (err) {
     console.error('Lookup error:', err);
@@ -98,6 +109,35 @@ router.put('/:code', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Update institution error:', err);
     res.status(500).json({ error: 'Update failed' });
+  }
+});
+
+// PUT /api/institutions/:code/pre-members  (auth required)
+// Upserts a phone→plan lock so that member cannot pick a different plan when joining.
+// Called automatically when admin adds/edits a member with a phone number.
+router.put('/:code/pre-members', requireAuth, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const doc  = await InstitutionRegistry.findOne({ inviteCode: code });
+    if (!doc) return res.status(404).json({ error: 'Institution not found' });
+    if (doc.adminUserId !== String(req.user._id)) {
+      return res.status(403).json({ error: 'Not your institution' });
+    }
+    const { phone, plan, fee, freq } = req.body;
+    if (!phone || !plan) return res.status(400).json({ error: 'phone and plan are required' });
+
+    const idx = doc.preMembers.findIndex(p => p.phone === phone);
+    if (idx >= 0) {
+      doc.preMembers[idx] = { phone, plan, fee: fee ?? 0, freq: freq ?? 'monthly' };
+    } else {
+      doc.preMembers.push({ phone, plan, fee: fee ?? 0, freq: freq ?? 'monthly' });
+    }
+    doc.updatedAt = new Date();
+    await doc.save();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Pre-member register error:', err);
+    res.status(500).json({ error: 'Failed to register pre-member' });
   }
 });
 

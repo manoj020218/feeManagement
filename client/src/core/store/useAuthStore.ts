@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { api, API_BASE, GOOGLE_CLIENT_ID } from '@/core/services/api';
 import { useAppStore } from './useAppStore';
-import { clearState } from '@/core/services/storage';
 import type { User } from '@/core/types';
 
 /** POST/GET directly so we can read the error body on failure */
@@ -121,8 +120,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
 
   logout: () => {
     api('POST', '/auth/logout');
-    clearState();
-    useAppStore.getState().reset();
+    // Remove auth tokens only — do NOT touch ff3 (institutions / members / transactions stay on device)
+    localStorage.removeItem('ff_token');
+    localStorage.removeItem('ff_refresh');
+    // Clear user from store so the app returns to login screen; preserve all other state
+    useAppStore.getState().setUser(null);
   },
 }));
 

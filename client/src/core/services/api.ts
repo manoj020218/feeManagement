@@ -24,11 +24,14 @@ async function tryRefreshToken(): Promise<boolean> {
   }
 }
 
+// Sentinel so callers can distinguish network failure from a real API error
+export const NETWORK_ERROR = Symbol('NETWORK_ERROR');
+
 export async function api<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-): Promise<T | null> {
+): Promise<T | null | typeof NETWORK_ERROR> {
   const token = localStorage.getItem('ff_token');
   try {
     const r = await fetch(`${API_BASE}/api${path}`, {
@@ -49,7 +52,8 @@ export async function api<T = unknown>(
     if (!r.ok) return null;
     return r.json() as Promise<T>;
   } catch {
-    return null;
+    // Fetch threw — server unreachable or no internet
+    return NETWORK_ERROR;
   }
 }
 

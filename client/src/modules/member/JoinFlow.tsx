@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAppStore } from '@/core/store/useAppStore';
 import { useUIStore } from '@/core/store/useUIStore';
-import { api } from '@/core/services/api';
+import { api, NETWORK_ERROR } from '@/core/services/api';
 import { th } from '@/data/institutionTypes';
 import { todayISO, addFreq } from '@/utils/dateHelpers';
 import type { PayFreq } from '@/core/types';
@@ -17,6 +17,8 @@ interface RegistryResult {
   adminPhone: string | null;
   plans: { name: string; fee: number; freq: string }[];
   requireApproval?: boolean;
+  /** Set when admin has pre-registered this phone → member cannot choose a different plan */
+  preAssigned?: { plan: string; fee: number; freq: string } | null;
 }
 
 // localStorage key for a pending join request
@@ -59,9 +61,11 @@ export default function JoinFlow({ onJoined }: Props) {
       try {
         const { phone } = JSON.parse(saved) as { phone: string };
         setLoading(true);
-        const data = await api<RegistryResult>('GET', `/institutions/lookup/${trimmed}`);
+        const phoneParam = user?.phone ? `?phone=${encodeURIComponent(user.phone)}` : '';
+        const data = await api<RegistryResult>('GET', `/institutions/lookup/${trimmed}${phoneParam}`);
         setLoading(false);
-        if (!data) { toast('Institution not found — check the invite code', 'err'); return; }
+        if (data === NETWORK_ERROR) { toast('Cannot connect to server — check your internet', 'err'); return; }
+        if (!data) { toast('Institution not found — ask your admin to publish it first', 'err'); return; }
         setFound(data);
         setReqPhone(phone);
         // Re-poll status
@@ -82,11 +86,16 @@ export default function JoinFlow({ onJoined }: Props) {
     }
 
     setLoading(true);
-    const data = await api<RegistryResult>('GET', `/institutions/lookup/${trimmed}`);
+    const phoneParam = user?.phone ? `?phone=${encodeURIComponent(user.phone)}` : '';
+    const data = await api<RegistryResult>('GET', `/institutions/lookup/${trimmed}${phoneParam}`);
     setLoading(false);
 
+    if (data === NETWORK_ERROR) {
+      toast('Cannot connect to server — check your internet connection', 'err');
+      return;
+    }
     if (!data) {
-      toast('Institution not found — check the invite code', 'err');
+      toast('Institution not found — ask your admin to publish the institution first', 'err');
       return;
     }
 
@@ -97,7 +106,8 @@ export default function JoinFlow({ onJoined }: Props) {
 
   function handleJoin() {
     if (!found) return;
-    const plan = found.plans[selPlan] ?? { name: 'Standard', fee: 0, freq: 'monthly' };
+    // If admin pre-assigned a plan, use that — member cannot override
+    const plan = found.preAssigned ?? found.plans[selPlan] ?? { name: 'Standard', fee: 0, freq: 'monthly' };
     const id   = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const today = todayISO();
 
@@ -300,8 +310,42 @@ export default function JoinFlow({ onJoined }: Props) {
           )}
         </div>
 
-        {/* Plan selection */}
-        {found.plans.length > 0 ? (
+        {/* Plan selection — locked if admin pre-assigned, choosable otherwise */}
+        {found.preAssigned ? (
+          // ── Locked plan (admin pre-registered this member's phone) ──────────
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, fontSize: '.82rem', marginBottom: 10, color: 'var(--muted)' }}>
+              YOUR PLAN
+            </div>
+            <div style={{
+              padding: '14px 16px', borderRadius: 10, marginBottom: 8,
+              border: '2px solid var(--member-accent)', background: 'rgba(100,200,255,.06)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '.9rem' }}>{found.preAssigned.plan}</div>
+                <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginTop: 2 }}>
+                  {found.preAssigned.freq ?? 'monthly'}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--member-accent)' }}>
+                  ₹{found.preAssigned.fee.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '.62rem', color: 'var(--muted)', marginTop: 2 }}>per {found.preAssigned.freq ?? 'month'}</div>
+              </div>
+            </div>
+            <div style={{
+              fontSize: '.75rem', padding: '8px 12px', borderRadius: 8,
+              background: 'rgba(52,199,89,.08)', border: '1px solid rgba(52,199,89,.25)',
+              color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span>🔒</span>
+              <span>Your plan has been set by your admin and cannot be changed. Contact your admin for any changes.</span>
+            </div>
+          </div>
+        ) : found.plans.length > 0 ? (
+          // ── Free plan selection ──────────────────────────────────────────────
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontWeight: 700, fontSize: '.82rem', marginBottom: 10, color: 'var(--muted)' }}>
               SELECT YOUR PLAN
@@ -332,7 +376,7 @@ export default function JoinFlow({ onJoined }: Props) {
           </div>
         )}
 
-        {plan && (
+        {!found.preAssigned && plan && (
           <div style={{
             padding: '10px 14px', borderRadius: 8, marginBottom: 16,
             background: 'rgba(100,200,255,.08)', border: '1px solid rgba(100,200,255,.2)',

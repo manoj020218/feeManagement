@@ -6,7 +6,9 @@ import { formatCurrency } from '@/data/countries';
 import { fmtDateShort, daysDiff, todayISO, addFreq } from '@/utils/dateHelpers';
 import { effectiveStatus, graceRemaining } from '@/utils/feeRules';
 import { api } from '@/core/services/api';
+import { exportMembers } from '@/core/services/excelService';
 import MemberForm from './MemberForm';
+import MemberImportModal from './MemberImportModal';
 import RecordPaymentModal from '@/modules/admin/Payments/RecordPaymentModal';
 import type { Member, JoinRequest } from '@/core/types';
 
@@ -35,6 +37,7 @@ export default function MembersPage() {
   const [filter, setFilter]   = useState<Filter>('All');
   const [editMember, setEdit] = useState<Member | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [payMember, setPayMember] = useState<Member | null>(null);
 
   // Join requests
@@ -43,6 +46,10 @@ export default function MembersPage() {
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [reasonFor,   setReasonFor]   = useState<string | null>(null);
   const [reasonText,  setReasonText]  = useState('');
+  // Plan editing before approve
+  const [editPlanFor, setEditPlanFor] = useState<string | null>(null);
+  const [editPlanVal, setEditPlanVal] = useState('');
+  const [editFeeVal,  setEditFeeVal]  = useState('');
 
   const t = inst ? th(inst.type) : th('other');
 
@@ -56,28 +63,40 @@ export default function MembersPage() {
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
 
-  async function handleApproveRequest(jr: JoinRequest) {
+  async function handleApproveRequest(jr: JoinRequest, overridePlan?: string, overrideFee?: number) {
     if (!inst) return;
     setActioningId(jr._id);
     const res = await api('PATCH', `/join-requests/${jr._id}`, { status: 'approved' });
     if (!res) { toast('Failed — check connection', 'err'); setActioningId(null); return; }
 
+    const finalPlan = overridePlan || jr.plan || t.plans[0] || 'Standard';
+    // Look up fee from published plans, fallback to overrideFee or 0
+    const planEntry = t.plans.indexOf(finalPlan);
+    const finalFee  = overrideFee !== undefined ? overrideFee : (planEntry >= 0 ? (t.fees[planEntry] ?? 0) : 0);
     const today = todayISO();
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     addMember({
       id, instId: inst.id,
       name:  jr.name,
       phone: jr.phone || undefined,
-      plan:  jr.plan || t.plans[0] || 'Standard',
-      fee:   0,
+      plan:  finalPlan,
+      fee:   finalFee,
       freq:  'monthly',
       joinDate: today,
       nextDue:  addFreq(today, 'monthly'),
       status:   'due',
     });
 
+    // Lock plan on VPS so member cannot change it if they re-join or use another device
+    if (inst.isPublished && jr.phone) {
+      api('PUT', `/institutions/${inst.inviteCode}/pre-members`, {
+        phone: jr.phone, plan: finalPlan, fee: finalFee, freq: 'monthly',
+      });
+    }
+
     toast(`${jr.name} approved & added`, 'ok');
     setActioningId(null);
+    setEditPlanFor(null);
     setJoinReqs(prev => prev.map(r => r._id === jr._id ? { ...r, status: 'approved' } : r));
   }
 
@@ -119,7 +138,7 @@ export default function MembersPage() {
   return (
     <div style={{padding:'16px 16px 0'}}>
       {/* Search + Add */}
-      <div style={{display:'flex',gap:8,marginBottom:12}}>
+      <div style={{display:'flex',gap:8,marginBottom:8}}>
         <input value={search} onChange={e=>setSearch(e.target.value)}
           placeholder={`Search ${t.members.toLowerCase()}…`}
           style={{flex:1,background:'var(--s2)',border:'1.5px solid var(--border)',borderRadius:'var(--r2)',
@@ -128,6 +147,24 @@ export default function MembersPage() {
           style={{background:'var(--accent)',border:'none',borderRadius:'var(--r2)',color:'#fff',
             padding:'9px 16px',fontFamily:'Outfit,sans-serif',fontSize:'.82rem',fontWeight:700,cursor:'pointer',flexShrink:0}}>
           + Add
+        </button>
+      </div>
+
+      {/* Export / Import toolbar */}
+      <div style={{display:'flex',gap:6,marginBottom:12,justifyContent:'flex-end'}}>
+        <button
+          onClick={() => exportMembers(members, inst.name)}
+          style={{background:'var(--s2)',border:'1px solid var(--border)',borderRadius:7,
+            color:'var(--muted2)',padding:'5px 11px',fontFamily:'Outfit,sans-serif',
+            fontSize:'.72rem',fontWeight:600,cursor:'pointer'}}>
+          ↓ Export Excel
+        </button>
+        <button
+          onClick={() => setImportOpen(true)}
+          style={{background:'var(--s2)',border:'1px solid var(--border)',borderRadius:7,
+            color:'var(--muted2)',padding:'5px 11px',fontFamily:'Outfit,sans-serif',
+            fontSize:'.72rem',fontWeight:600,cursor:'pointer'}}>
+          ↑ Import Excel
         </button>
       </div>
 
@@ -168,7 +205,71 @@ export default function MembersPage() {
                   <span style={{ marginLeft: 8, opacity: .7 }}>{new Date(jr.createdAt).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</span>
                 </div>
 
-                {reasonFor === jr._id ? (
+                {editPlanFor === jr._id ? (
+                  // ── Plan editor (shown before approve) ────────────────────
+                  <div>
+                    <div style={{ fontSize: '.73rem', color: 'var(--muted)', marginBottom: 6 }}>
+                      Change plan before approving:
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 6, marginBottom: 7 }}>
+                      <select
+                        value={editPlanVal}
+                        onChange={e => {
+                          const idx = t.plans.indexOf(e.target.value);
+                          setEditPlanVal(e.target.value);
+                          setEditFeeVal(idx >= 0 ? String(t.fees[idx] ?? 0) : editFeeVal);
+                        }}
+                        style={{
+                          background:'var(--s2)', border:'1px solid var(--border)', borderRadius:7,
+                          padding:'7px 10px', color:'var(--text)', fontFamily:'Outfit,sans-serif',
+                          fontSize:'.82rem', outline:'none',
+                        }}
+                      >
+                        {t.plans.map(p => <option key={p} value={p}>{p}</option>)}
+                        <option value="__custom__">Custom…</option>
+                      </select>
+                      <input
+                        type="number"
+                        placeholder="Fee ₹"
+                        value={editFeeVal}
+                        onChange={e => setEditFeeVal(e.target.value)}
+                        style={{
+                          background:'var(--s2)', border:'1px solid var(--border)', borderRadius:7,
+                          padding:'7px 10px', color:'var(--text)', fontFamily:'Outfit,sans-serif',
+                          fontSize:'.82rem', outline:'none',
+                        }}
+                      />
+                    </div>
+                    {editPlanVal === '__custom__' && (
+                      <input
+                        placeholder="Custom plan name"
+                        value={editPlanVal === '__custom__' ? '' : editPlanVal}
+                        onChange={e => setEditPlanVal(e.target.value)}
+                        style={{
+                          width:'100%', background:'var(--s2)', border:'1px solid var(--border)', borderRadius:7,
+                          padding:'7px 10px', color:'var(--text)', fontFamily:'Outfit,sans-serif',
+                          fontSize:'.82rem', outline:'none', marginBottom:7,
+                        }}
+                      />
+                    )}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => handleApproveRequest(jr, editPlanVal === '__custom__' ? '' : editPlanVal, parseFloat(editFeeVal) || 0)}
+                        disabled={actioningId === jr._id}
+                        style={{ flex:2, background:'rgba(52,199,89,.15)', border:'1px solid rgba(52,199,89,.35)',
+                          borderRadius:7, color:'var(--green)', padding:'7px 10px', fontSize:'.76rem',
+                          fontWeight:700, cursor:'pointer', fontFamily:'Outfit,sans-serif' }}>
+                        {actioningId === jr._id ? '…' : '✓ Approve with this plan'}
+                      </button>
+                      <button onClick={() => { setEditPlanFor(null); }}
+                        style={{ background:'none', border:'1px solid var(--border)', borderRadius:7,
+                          color:'var(--muted)', padding:'7px 10px', fontSize:'.73rem', cursor:'pointer', fontFamily:'Outfit,sans-serif' }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : reasonFor === jr._id ? (
+                  // ── Hold / Reject reason entry ─────────────────────────────
                   <div>
                     <input
                       value={reasonText}
@@ -201,12 +302,26 @@ export default function MembersPage() {
                     </div>
                   </div>
                 ) : (
+                  // ── Default action row ─────────────────────────────────────
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => handleApproveRequest(jr)} disabled={actioningId === jr._id}
                       style={{ flex:1, background:'rgba(52,199,89,.15)', border:'1px solid rgba(52,199,89,.35)',
                         borderRadius:7, color:'var(--green)', padding:'7px 10px', fontSize:'.76rem',
                         fontWeight:700, cursor:'pointer', fontFamily:'Outfit,sans-serif' }}>
                       {actioningId === jr._id ? '…' : '✓ Approve'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditPlanFor(jr._id);
+                        const firstPlan = jr.plan && t.plans.includes(jr.plan) ? jr.plan : (t.plans[0] ?? '');
+                        setEditPlanVal(firstPlan);
+                        const idx = t.plans.indexOf(firstPlan);
+                        setEditFeeVal(idx >= 0 ? String(t.fees[idx] ?? 0) : '0');
+                      }}
+                      style={{ flex:1, background:'rgba(79,142,255,.1)', border:'1px solid rgba(79,142,255,.3)',
+                        borderRadius:7, color:'var(--accent)', padding:'7px 10px', fontSize:'.76rem',
+                        fontWeight:700, cursor:'pointer', fontFamily:'Outfit,sans-serif' }}>
+                      ✏ Edit Plan
                     </button>
                     <button onClick={() => { setReasonFor(jr._id); setReasonText(''); }}
                       style={{ flex:1, background:'rgba(255,200,0,.1)', border:'1px solid rgba(255,200,0,.3)',
@@ -346,6 +461,10 @@ export default function MembersPage() {
           preselectedMember={payMember}
           onClose={() => setPayMember(null)}
         />
+      )}
+
+      {importOpen && inst && (
+        <MemberImportModal inst={inst} onClose={() => setImportOpen(false)}/>
       )}
     </div>
   );

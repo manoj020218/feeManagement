@@ -98,6 +98,10 @@ export interface Institution {
   requireApproval?: boolean;
   status?: 'active' | 'archived';   // default 'active'
   archivedAt?: string;               // ISO date when archived
+  /** Whether admin has published this institution to the member directory */
+  isPublished?: boolean;
+  /** Admin-configured fee plans (synced from publish modal; merged into MemberForm dropdown) */
+  plans?: { name: string; fee: number; freq: string }[];
 }
 
 // ─── Member ────────────────────────────────────────────────

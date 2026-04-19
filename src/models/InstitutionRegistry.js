@@ -10,6 +10,15 @@ const planSchema = new mongoose.Schema({
   freq:  { type: String, default: 'monthly' },
 });
 
+// Pre-registered members: phone → plan lock so member can't pick a different plan
+const preMemberSchema = new mongoose.Schema({
+  _id:   false,
+  phone: { type: String, required: true },
+  plan:  { type: String, required: true },
+  fee:   { type: Number, default: 0 },
+  freq:  { type: String, default: 'monthly' },
+});
+
 const registrySchema = new mongoose.Schema({
   inviteCode:  { type: String, required: true, unique: true, uppercase: true, trim: true },
   name:        { type: String, required: true, trim: true },
@@ -23,6 +32,7 @@ const registrySchema = new mongoose.Schema({
   logo:            { type: String, default: null },                 // base64 data-url
   achievements:    [{ type: String }],                             // short strings e.g. "Est. 2010"
   requireApproval: { type: Boolean, default: false },              // admin must approve each join
+  preMembers:      [preMemberSchema],                               // phone → locked plan
   publishedAt:     { type: Date, default: Date.now },
   updatedAt:       { type: Date, default: Date.now },
 }, { versionKey: false });

@@ -8,6 +8,10 @@ import { COUNTRIES } from '@/data/countries';
 import { normalizePhone, validatePhone } from '@/utils/phoneNormalizer';
 import { todayISO } from '@/utils/dateHelpers';
 import PinInput from '@/modules/shared/PinInput';
+import MemberImportModal from '@/modules/admin/Members/MemberImportModal';
+import { exportMembers, downloadTemplate } from '@/core/services/excelService';
+import { exportInstBackup, parseInstBackup } from '@/core/services/jsonService';
+import { performDriveBackup, listDriveBackups, downloadDriveFile, type DriveFile } from '@/core/services/driveService';
 import type { PayQR, Institution } from '@/core/types';
 import QRCodeLib from 'qrcode';
 
@@ -157,6 +161,369 @@ function FeeRulesPanel({ inst, onUpdate }: { inst: Institution; onUpdate: (patch
 }
 
 // ------------------------------------------------------------------
+// Data & Backup inline panel
+// ------------------------------------------------------------------
+interface DriveBackupStatus { email: string; at: string; }
+const DRV_KEY = (id: string) => `ff_drive_bk_${id}`;
+
+function DataBackupPanel({
+  inst,
+  onImportMembers,
+}: {
+  inst: Institution;
+  onImportMembers: () => void;
+}) {
+  const members         = useAppStore(s => s.members[inst.id] ?? []);
+  const transactions    = useAppStore(s => s.transactions[inst.id] ?? []);
+  const institutions    = useAppStore(s => s.institutions);
+  const importMembersStore  = useAppStore(s => s.importMembers);
+  const addTransaction      = useAppStore(s => s.addTransaction);
+  const addInstitutionStore = useAppStore(s => s.addInstitution);
+  const { toast } = useUIStore();
+
+  const [driveLoading,   setDriveLoading]   = useState(false);
+  const [driveStatus,    setDriveStatus]    = useState<DriveBackupStatus | null>(() => {
+    try { return JSON.parse(localStorage.getItem(DRV_KEY(inst.id)) ?? 'null'); } catch { return null; }
+  });
+  // Drive restore picker state
+  const [pickerOpen,     setPickerOpen]     = useState(false);
+  const [pickerLoading,  setPickerLoading]  = useState(false);
+  const [pickerFiles,    setPickerFiles]    = useState<DriveFile[]>([]);
+  const [pickerEmail,    setPickerEmail]    = useState('');
+  const [pickerToken,    setPickerToken]    = useState('');
+  const [restoringId,    setRestoringId]    = useState<string | null>(null);
+  // Restore confirm modal
+  type RestoreIntent =
+    | { type: 'drive'; file: DriveFile }
+    | { type: 'json';  parsed: any; srcName: string };
+  const [restoreIntent,  setRestoreIntent]  = useState<RestoreIntent | null>(null);
+  const [restoring,      setRestoring]      = useState(false);
+
+  const jsonRestoreRef = useRef<HTMLInputElement>(null);
+  const t = th(inst.type);
+
+  // safety filename computed at the moment of showing the confirm modal
+  const safetyFileName = `${inst.name.replace(/[^a-z0-9]/gi, '_')}_PRE_RESTORE_${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}.json`;
+
+  // ── shared: apply a parsed backup object (merge strategy) ──────────────
+  function applyBackup(backup: any): string {
+    const raw = backup as { institution?: any; members?: any[]; transactions?: any[] };
+    if (!raw.institution || !Array.isArray(raw.members) || !Array.isArray(raw.transactions)) {
+      throw new Error('Invalid backup format');
+    }
+    const existingInst = institutions.find(
+      i => i.id === raw.institution.id || i.inviteCode === raw.institution.inviteCode,
+    );
+    if (!existingInst) {
+      addInstitutionStore(raw.institution);
+      if (raw.members.length) importMembersStore(raw.institution.id, raw.members);
+      raw.transactions.forEach((tx: any) => addTransaction(tx));
+      return `Restored "${raw.institution.name}" with ${raw.members.length} members`;
+    }
+    const existingMemberIds = new Set((useAppStore.getState().members[existingInst.id] ?? []).map(m => m.id));
+    const existingTxIds     = new Set((useAppStore.getState().transactions[existingInst.id] ?? []).map(tx => tx.id));
+    const newMembers = raw.members.filter((m: any) => !existingMemberIds.has(m.id)).map((m: any) => ({ ...m, instId: existingInst.id }));
+    const newTxs     = raw.transactions.filter((tx: any) => !existingTxIds.has(tx.id)).map((tx: any) => ({ ...tx, instId: existingInst.id }));
+    if (newMembers.length) importMembersStore(existingInst.id, newMembers);
+    newTxs.forEach((tx: any) => addTransaction(tx));
+    return `Merged: +${newMembers.length} members, +${newTxs.length} transactions`;
+  }
+
+  // ── backup to Drive ────────────────────────────────────────────────────
+  async function handleDriveBackup() {
+    setDriveLoading(true);
+    try {
+      const backup   = { version: 1, exportedAt: new Date().toISOString(), institution: inst, members, transactions };
+      const fileName = `FeeFlow_${inst.name.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
+      const result   = await performDriveBackup(backup, fileName);
+      const status: DriveBackupStatus = { email: result.email, at: new Date().toISOString() };
+      localStorage.setItem(DRV_KEY(inst.id), JSON.stringify(status));
+      setDriveStatus(status);
+      toast('Backup uploaded to Google Drive ✓', 'ok');
+    } catch (err: any) {
+      toast(err?.message ?? 'Drive backup failed', 'err');
+    }
+    setDriveLoading(false);
+  }
+
+  // ── auto-backup current data before any restore ────────────────────────
+  function autoBackupCurrent() {
+    if (!members.length && !transactions.length) return; // nothing to back up
+    // Export with a "pre_restore" tag so the user can identify it
+    const backup = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      institution: inst,
+      members,
+      transactions,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${inst.name.replace(/[^a-z0-9]/gi, '_')}_PRE_RESTORE_${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── open Drive restore picker ──────────────────────────────────────────
+  async function openDrivePicker() {
+    setPickerLoading(true);
+    try {
+      const { files, email, accessToken } = await listDriveBackups();
+      setPickerFiles(files);
+      setPickerEmail(email);
+      setPickerToken(accessToken);
+      setPickerOpen(true);
+    } catch (err: any) {
+      toast(err?.message ?? 'Could not connect to Drive', 'err');
+    }
+    setPickerLoading(false);
+  }
+
+  // ── stage Drive file for restore (shows confirm modal) ─────────────────
+  function stageRestoreFromDrive(file: DriveFile) {
+    setRestoreIntent({ type: 'drive', file });
+  }
+
+  // ── stage JSON file for restore (validate first, then show modal) ───────
+  async function stageRestoreFromJson(file: File) {
+    try {
+      const parsed = await parseInstBackup(file);
+      setRestoreIntent({ type: 'json', parsed, srcName: file.name });
+    } catch (err) {
+      toast(typeof err === 'string' ? err : 'Invalid backup file', 'err');
+    }
+  }
+
+  // ── execute the staged restore (called from confirm modal) ──────────────
+  async function executeRestore() {
+    if (!restoreIntent) return;
+    setRestoring(true);
+    try {
+      // 1. Download safety copy of current data
+      autoBackupCurrent();
+
+      // 2. Fetch / use already-parsed backup
+      let backup: any;
+      if (restoreIntent.type === 'drive') {
+        setRestoringId(restoreIntent.file.id);
+        const content = await downloadDriveFile(restoreIntent.file.id, pickerToken);
+        backup = JSON.parse(content);
+      } else {
+        backup = restoreIntent.parsed;
+      }
+
+      // 3. Merge into local data
+      const msg = applyBackup(backup);
+      toast(`${msg} ✓`, 'ok');
+      setRestoreIntent(null);
+      setPickerOpen(false);
+    } catch (err: any) {
+      toast(err?.message ?? 'Restore failed', 'err');
+    }
+    setRestoringId(null);
+    setRestoring(false);
+  }
+
+  // ── styles ─────────────────────────────────────────────────────────────
+  const s: React.CSSProperties = {
+    marginTop: 12, padding: '12px 14px', borderRadius: 10,
+    background: 'rgba(79,142,255,.05)', border: '1px solid rgba(79,142,255,.2)',
+  };
+  const sectionLabel: React.CSSProperties = {
+    fontSize: '.65rem', fontWeight: 800, color: 'var(--muted)', letterSpacing: 1,
+    textTransform: 'uppercase', marginBottom: 6, marginTop: 12,
+  };
+  const btnStyle: React.CSSProperties = {
+    flex: 1, background: 'var(--s2)', border: '1px solid var(--border)',
+    borderRadius: 7, color: 'var(--text)', padding: '7px 8px',
+    fontSize: '.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'Outfit,sans-serif',
+    textAlign: 'center' as const,
+  };
+
+  return (
+    <>
+      <div style={s}>
+        <div style={{ fontSize: '.72rem', fontWeight: 800, color: 'var(--accent)', letterSpacing: .5, textTransform: 'uppercase' }}>
+          Data &amp; Backup
+        </div>
+
+        {/* Excel */}
+        <div style={sectionLabel}>Excel</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button style={btnStyle} onClick={() => downloadTemplate(inst.name, t.plans, t.fees)}>↓ Template</button>
+          <button style={btnStyle} onClick={() => exportMembers(members, inst.name)}>↓ Export</button>
+          <button style={btnStyle} onClick={onImportMembers}>↑ Import</button>
+        </div>
+
+        {/* JSON */}
+        <div style={sectionLabel}>JSON Backup</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button style={btnStyle} onClick={() => exportInstBackup(inst, members, transactions)}>↓ Full Backup</button>
+          <button style={btnStyle} onClick={() => jsonRestoreRef.current?.click()}>↑ Restore JSON</button>
+          <input ref={jsonRestoreRef} type="file" accept=".json" style={{ display: 'none' }}
+            onChange={async e => { const f = e.target.files?.[0]; if (f) await stageRestoreFromJson(f); e.target.value = ''; }}
+          />
+        </div>
+
+        {/* Google Drive */}
+        <div style={sectionLabel}>Google Drive</div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+          <button
+            onClick={handleDriveBackup} disabled={driveLoading}
+            style={{ ...btnStyle, color: driveLoading ? 'var(--muted)' : 'var(--accent)', borderColor: 'rgba(79,142,255,.3)' }}>
+            {driveLoading ? '⏳ Uploading…' : '☁ Backup'}
+          </button>
+          <button
+            onClick={openDrivePicker} disabled={pickerLoading}
+            style={{ ...btnStyle, color: pickerLoading ? 'var(--muted)' : 'var(--green)', borderColor: 'rgba(52,199,89,.3)' }}>
+            {pickerLoading ? '⏳ Connecting…' : '↺ Restore'}
+          </button>
+        </div>
+
+        {/* Last backup status */}
+        {driveStatus ? (
+          <div style={{ padding: '7px 10px', borderRadius: 7, background: 'rgba(52,199,89,.08)', border: '1px solid rgba(52,199,89,.2)' }}>
+            <div style={{ fontSize: '.68rem', color: 'var(--green)', fontWeight: 700, marginBottom: 2 }}>✓ Last backup successful</div>
+            <div style={{ fontSize: '.65rem', color: 'var(--muted)', lineHeight: 1.6 }}>
+              📧 {driveStatus.email}<br/>
+              🕐 {new Date(driveStatus.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: '.65rem', color: 'var(--muted)' }}>
+            No backup yet · files saved to your Google Drive root
+          </div>
+        )}
+      </div>
+
+      {/* ── Restore confirm + instructions modal ── */}
+      {restoreIntent && (
+        <div className="mo open" onClick={e => { if (e.target === e.currentTarget && !restoring) setRestoreIntent(null); }}>
+          <div className="mo-box">
+            <div className="mo-handle"/>
+            <div className="mo-title">Restore Data</div>
+
+            {/* What will be restored */}
+            <div style={{ fontSize: '.78rem', color: 'var(--muted)', marginBottom: 12 }}>
+              Restoring from:{' '}
+              <strong style={{ color: 'var(--text)' }}>
+                {restoreIntent.type === 'drive' ? restoreIntent.file.name : restoreIntent.srcName}
+              </strong>
+            </div>
+
+            {/* Safety backup notice */}
+            <div style={{ borderRadius: 9, background: 'rgba(79,142,255,.07)', border: '1px solid rgba(79,142,255,.2)', padding: '12px 14px', marginBottom: 14 }}>
+              <div style={{ fontWeight: 800, fontSize: '.78rem', color: 'var(--accent)', marginBottom: 6 }}>
+                📥 We will first download your current data
+              </div>
+              <div style={{ fontSize: '.74rem', color: 'var(--muted)', lineHeight: 1.65 }}>
+                Before restoring, your existing data will be automatically saved to your device as:
+              </div>
+              <div style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--text)', background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 10px', marginTop: 6, wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                {safetyFileName}
+              </div>
+              <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginTop: 6 }}>
+                Save this file safely — it is your rollback point.
+              </div>
+            </div>
+
+            {/* How to recover */}
+            <div style={{ borderRadius: 9, background: 'rgba(255,200,0,.06)', border: '1px solid rgba(255,200,0,.2)', padding: '12px 14px', marginBottom: 16 }}>
+              <div style={{ fontWeight: 800, fontSize: '.78rem', color: 'var(--yellow)', marginBottom: 8 }}>
+                🔄 How to go back to your existing data if needed
+              </div>
+              {[
+                'Open Admin Profile → tap the institution',
+                'Tap the ⋯ menu → choose "Data & Backup"',
+                'Under JSON Backup, tap "↑ Restore JSON"',
+                `Select the file named "${safetyFileName.slice(0, 30)}…"`,
+                'Your previous data will be merged back instantly',
+              ].map((step, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 5, alignItems: 'flex-start' }}>
+                  <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'rgba(255,200,0,.2)', color: 'var(--yellow)', fontSize: '.65rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                    {i + 1}
+                  </div>
+                  <div style={{ fontSize: '.73rem', color: 'var(--muted)', lineHeight: 1.5 }}>{step}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="btn-row">
+              <button className="btn g" onClick={() => setRestoreIntent(null)} disabled={restoring}>
+                Cancel
+              </button>
+              <button className="btn p" onClick={executeRestore} disabled={restoring}>
+                {restoring ? '⏳ Restoring…' : '✓ Download Safety Backup & Restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Drive file picker modal ── */}
+      {pickerOpen && (
+        <div className="mo open" onClick={e => { if (e.target === e.currentTarget) setPickerOpen(false); }}>
+          <div className="mo-box" style={{ maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="mo-handle"/>
+            <div className="mo-title">Restore from Google Drive</div>
+            <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginBottom: 10 }}>
+              Signed in as <strong style={{ color: 'var(--text)' }}>{pickerEmail}</strong>
+            </div>
+
+            {pickerFiles.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--muted)', fontSize: '.82rem' }}>
+                No FeeFlow backup files found in your Drive.
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowY: 'auto', marginBottom: 10 }}>
+                {pickerFiles.map(f => {
+                  const isRestoring = restoringId === f.id;
+                  const date = new Date(f.modifiedTime).toLocaleString('en-IN', {
+                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                  });
+                  const sizeKB = f.size ? `${Math.round(parseInt(f.size) / 1024)} KB` : '';
+                  return (
+                    <div key={f.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '10px 0', borderBottom: '1px solid var(--border)',
+                    }}>
+                      <div style={{ fontSize: '1.4rem', flexShrink: 0 }}>📄</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.name}
+                        </div>
+                        <div style={{ fontSize: '.68rem', color: 'var(--muted)', marginTop: 2 }}>
+                          {date}{sizeKB ? ` · ${sizeKB}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => stageRestoreFromDrive(f)}
+                        disabled={restoringId !== null}
+                        style={{
+                          background: 'rgba(52,199,89,.12)', border: '1px solid rgba(52,199,89,.3)',
+                          borderRadius: 7, color: 'var(--green)', padding: '6px 12px',
+                          fontSize: '.72rem', fontWeight: 700, cursor: restoringId ? 'default' : 'pointer',
+                          fontFamily: 'Outfit,sans-serif', flexShrink: 0, opacity: restoringId && !isRestoring ? 0.5 : 1,
+                        }}>
+                        {isRestoring ? '⏳…' : '↺ Restore'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button className="btn g" onClick={() => setPickerOpen(false)}>Close</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ------------------------------------------------------------------
 // Main component
 // ------------------------------------------------------------------
 export default function AdminProfile() {
@@ -179,8 +546,11 @@ export default function AdminProfile() {
   const { logout } = useAuthStore();
   const { toast } = useUIStore();
 
-  // Fee rules expanded state
-  const [feeRulesFor, setFeeRulesFor] = useState<string | null>(null);
+  // Fee rules + data backup expanded state
+  const [feeRulesFor,    setFeeRulesFor]    = useState<string | null>(null);
+  const [dataBackupFor,  setDataBackupFor]  = useState<string | null>(null);
+  // Import members modal
+  const [importMembersInstId, setImportMembersInstId] = useState<string | null>(null);
 
   const inp: React.CSSProperties = {
     width: '100%', background: 'var(--s2)', border: '1.5px solid var(--border)',
@@ -377,7 +747,28 @@ export default function AdminProfile() {
   function openPub(id: string) {
     const inst = institutions.find(i => i.id === id); if (!inst) return;
     setPubInstId2(id); setPubAddr('');
-    setPubPlans(th(inst.type).plans.map((p, i) => ({ name: p, fee: th(inst.type).fees[i] ?? 0, freq: 'monthly' })));
+
+    // Initialize plans from inst.plans (previously saved) if available;
+    // otherwise derive from existing members (unique plan+fee combos);
+    // fall back to type config defaults.
+    if (inst.plans && inst.plans.length > 0) {
+      setPubPlans(inst.plans.map(p => ({ name: p.name, fee: p.fee, freq: p.freq ?? 'monthly' })));
+    } else {
+      const instMembers = useAppStore.getState().members[id] ?? [];
+      const seen = new Set<string>();
+      const derivedPlans: { name: string; fee: number; freq: string }[] = [];
+      instMembers.forEach(m => {
+        if (m.plan && !seen.has(m.plan)) {
+          seen.add(m.plan);
+          derivedPlans.push({ name: m.plan, fee: m.fee ?? 0, freq: m.freq ?? 'monthly' });
+        }
+      });
+      if (derivedPlans.length > 0) {
+        setPubPlans(derivedPlans);
+      } else {
+        setPubPlans(th(inst.type).plans.map((p, i) => ({ name: p, fee: th(inst.type).fees[i] ?? 0, freq: 'monthly' })));
+      }
+    }
     setPubOpen(true);
   }
 
@@ -390,6 +781,19 @@ export default function AdminProfile() {
     });
     setPublishing(false);
     if (!ok) { toast('Publish failed', 'err'); return; }
+    // Save plans to local institution so MemberForm can use them
+    const savedPlans = pubPlans.filter(p => p.name.trim());
+    updateInstitution(pubInstId2, { isPublished: true, plans: savedPlans });
+
+    // Fire-and-forget: pre-register all existing members with phone numbers
+    // so their plans are locked when they join via invite code
+    const existingMembers = useAppStore.getState().members[pubInstId2] ?? [];
+    existingMembers.filter(m => m.phone).forEach(m => {
+      api('PUT', `/institutions/${inst.inviteCode}/pre-members`, {
+        phone: m.phone, plan: m.plan, fee: m.fee, freq: m.freq,
+      });
+    });
+
     toast(`"${inst.name}" published ✓`, 'ok'); setPubOpen(false);
   }
 
@@ -472,7 +876,8 @@ export default function AdminProfile() {
             { label: 'Edit Profile', icon: '✏️', onClick: () => openInstEdit(inst.id) },
             { label: 'Publish to Directory', icon: '📢', onClick: () => openPub(inst.id) },
             { label: 'Payment QR Codes', icon: '🔗', onClick: () => openQR(inst.id) },
-            { label: 'Fee Rules', icon: '⚙️', onClick: () => setFeeRulesFor(feeRulesFor === inst.id ? null : inst.id) },
+            { label: 'Fee Rules', icon: '⚙️', onClick: () => { setDataBackupFor(null); setFeeRulesFor(feeRulesFor === inst.id ? null : inst.id); } },
+            { label: 'Data & Backup', icon: '📊', onClick: () => { setFeeRulesFor(null); setDataBackupFor(dataBackupFor === inst.id ? null : inst.id); } },
             { label: 'Archive Institution', icon: '📦', onClick: () => { if(confirm(`Archive ${inst.name}? You can restore it later.`)) archiveInstitution(inst.id); } }
           ];
           return (
@@ -480,15 +885,40 @@ export default function AdminProfile() {
               <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
                 {inst.logo ? <img src={inst.logo} style={{ width:36, height:36, borderRadius:9, objectFit:'cover' }} alt=""/> : <div style={{ width:36, height:36, borderRadius:9, background:`${th(inst.type).color}22`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.2rem' }}>{th(inst.type).icon}</div>}
                 <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:'.88rem', display:'flex', alignItems:'center', gap:6 }}>
+                  <div style={{ fontWeight:700, fontSize:'.88rem', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                     {inst.name}
                     {isActive && <span style={{ fontSize:'.6rem', fontWeight:800, padding:'2px 7px', borderRadius:99, background:'rgba(79,142,255,.15)', color:'var(--accent)' }}>ACTIVE</span>}
+                    {!inst.isPublished && (
+                      <span
+                        onClick={() => openPub(inst.id)}
+                        style={{ fontSize:'.6rem', fontWeight:800, padding:'2px 7px', borderRadius:99, background:'rgba(255,150,0,.15)', color:'var(--yellow)', cursor:'pointer', border:'1px solid rgba(255,150,0,.3)' }}
+                        title="Tap to publish">
+                        UNPUBLISHED
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize:'.7rem', color:'var(--muted)' }}>{th(inst.type).label}<span style={{ marginLeft:8, letterSpacing:2, background:'var(--s2)', border:'1px solid var(--border)', borderRadius:5, padding:'1px 6px', fontSize:'.67rem', userSelect:'all' }}>{inst.inviteCode}</span></div>
                 </div>
                 {!isActive && <button onClick={() => { setActiveInst(inst.id); toast(`Switched to ${inst.name}`, 'ok'); }} style={{ background:'rgba(79,142,255,.12)', border:'1px solid rgba(79,142,255,.3)', borderRadius:8, color:'var(--accent)', padding:'5px 12px', fontSize:'.72rem', fontWeight:700, cursor:'pointer', flexShrink:0 }}>Switch →</button>}
                 <DropdownMenu actions={actions} />
               </div>
+              {/* Unpublished helper banner */}
+              {!inst.isPublished && (
+                <div style={{ marginBottom: 8, borderRadius: 8, background: 'rgba(255,150,0,.07)', border: '1px solid rgba(255,150,0,.25)', padding: '10px 12px' }}>
+                  <div style={{ fontSize: '.74rem', fontWeight: 700, color: 'var(--yellow)', marginBottom: 4 }}>
+                    ⚠ Members cannot find this institution yet
+                  </div>
+                  <div style={{ fontSize: '.7rem', color: 'var(--muted)', lineHeight: 1.6 }}>
+                    Publishing adds <strong style={{ color: 'var(--text)' }}>{inst.name}</strong> to the member directory so members can search and join using code <strong style={{ color: 'var(--text)', letterSpacing: 1 }}>{inst.inviteCode}</strong>. Without publishing, the invite code shows "Institution not found".
+                  </div>
+                  <button
+                    onClick={() => openPub(inst.id)}
+                    style={{ marginTop: 8, background: 'rgba(255,150,0,.15)', border: '1px solid rgba(255,150,0,.35)', borderRadius: 7, color: 'var(--yellow)', padding: '6px 14px', fontSize: '.73rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit,sans-serif' }}>
+                    📢 Publish Now →
+                  </button>
+                </div>
+              )}
+
               {/* QR list (unchanged) */}
               {(inst.payQRs ?? []).length > 0 && (
                 <div style={{ marginTop:8 }}>
@@ -500,7 +930,13 @@ export default function AdminProfile() {
                   ))}
                 </div>
               )}
-              {feeRulesFor === inst.id && <FeeRulesPanel inst={inst} onUpdate={(patch) => updateInstitution(inst.id, patch)}/>}
+              {feeRulesFor   === inst.id && <FeeRulesPanel inst={inst} onUpdate={(patch) => updateInstitution(inst.id, patch)}/>}
+              {dataBackupFor === inst.id && (
+                <DataBackupPanel
+                  inst={inst}
+                  onImportMembers={() => setImportMembersInstId(inst.id)}
+                />
+              )}
             </div>
           );
         })}
@@ -614,7 +1050,9 @@ export default function AdminProfile() {
           <div className="mo open" onClick={e => { if(e.target===e.currentTarget) setPubOpen(false); }}>
             <div className="mo-box" style={{ maxHeight:'82vh', overflowY:'auto' }}>
               <div className="mo-handle"/><div className="mo-title">📢 Publish to Member Directory</div>
-              <div style={{ fontSize:'.78rem', color:'var(--muted)', marginBottom:12 }}>Members can find <strong style={{ color:'var(--text)' }}>{inst.name}</strong> using code <strong style={{ letterSpacing:2, color:'var(--accent)' }}>{inst.inviteCode}</strong></div>
+              <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(79,142,255,.07)', border: '1px solid rgba(79,142,255,.2)', fontSize: '.73rem', color: 'var(--muted)', lineHeight: 1.65 }}>
+                Publishing lets members search and join <strong style={{ color: 'var(--text)' }}>{inst.name}</strong> using invite code <strong style={{ color: 'var(--accent)', letterSpacing: 1 }}>{inst.inviteCode}</strong>. Share this code via WhatsApp or SMS — members enter it in the app to find and join your institution.
+              </div>
               <div className="fld"><label>Address</label><input value={pubAddr} onChange={e => setPubAddr(e.target.value)} placeholder="Location" style={inp}/></div>
               <div style={{ fontWeight:700, fontSize:'.78rem', marginBottom:8 }}>FEE PLANS</div>
               {pubPlans.map((p,i) => (
@@ -662,6 +1100,13 @@ export default function AdminProfile() {
           </div>
         </div>
       )}
+
+      {/* Member Import modal (triggered from Data & Backup panel) */}
+      {importMembersInstId && (() => {
+        const inst = institutions.find(i => i.id === importMembersInstId);
+        if (!inst) return null;
+        return <MemberImportModal inst={inst} onClose={() => setImportMembersInstId(null)}/>;
+      })()}
 
       {/* PIN modal */}
       {pinOpen && (
