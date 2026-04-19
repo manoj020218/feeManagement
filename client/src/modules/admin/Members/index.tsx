@@ -53,12 +53,19 @@ export default function MembersPage() {
 
   const t = inst ? th(inst.type) : th('other');
 
+  // ✅ FIX 1: fetchRequests with try/catch and always array
   const fetchRequests = useCallback(async () => {
     if (!inst) return;
     setReqsLoading(true);
-    const data = await api<JoinRequest[]>('GET', `/join-requests/${inst.inviteCode}`);
-    setReqsLoading(false);
-    if (data) setJoinReqs(data);
+    try {
+      const data = await api<JoinRequest[]>('GET', `/join-requests/${inst.inviteCode}`);
+      setJoinReqs(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Failed to fetch join requests:', error);
+      setJoinReqs([]);
+    } finally {
+      setReqsLoading(false);
+    }
   }, [inst]);
 
   useEffect(() => { fetchRequests(); }, [fetchRequests]);
@@ -168,9 +175,10 @@ export default function MembersPage() {
         </button>
       </div>
 
-      {/* Pending Join Requests (unchanged) */}
+      {/* Pending Join Requests */}
       {inst.requireApproval && (() => {
-        const pending = joinReqs.filter(r => r.status === 'pending');
+        // ✅ FIX 2: safety check before filter
+        const pending = Array.isArray(joinReqs) ? joinReqs.filter(r => r.status === 'pending') : [];
         if (pending.length === 0 && !reqsLoading) return null;
         return (
           <div style={{

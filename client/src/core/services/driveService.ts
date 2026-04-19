@@ -8,6 +8,18 @@ const DRIVE_SCOPE = [
   'https://www.googleapis.com/auth/userinfo.email',
 ].join(' ');
 
+interface CachedDriveAuth {
+  accessToken: string;
+  email: string;
+  expiresAt: number;
+}
+
+let cachedDriveAuth: CachedDriveAuth | null = null;
+
+function hasValidCachedAuth() {
+  return !!cachedDriveAuth && cachedDriveAuth.expiresAt > Date.now();
+}
+
 export interface DriveBackupResult {
   email: string;
 }
@@ -35,6 +47,13 @@ function loadGSIScript(): Promise<void> {
 function getWebTokenAndEmail(): Promise<{ accessToken: string; email: string }> {
   return new Promise(async (resolve, reject) => {
     try {
+      if (hasValidCachedAuth()) {
+        resolve({
+          accessToken: cachedDriveAuth!.accessToken,
+          email: cachedDriveAuth!.email,
+        });
+        return;
+      }
       const clientId = GOOGLE_CLIENT_ID;
       if (!clientId) {
         reject(new Error('Google Client ID not configured. Add VITE_GOOGLE_CLIENT_ID to client/.env.local'));
@@ -50,13 +69,25 @@ function getWebTokenAndEmail(): Promise<{ accessToken: string; email: string }> 
             return;
           }
           const accessToken = response.access_token as string;
+          const expiresInSec = Number(response.expires_in ?? 3600);
           try {
             const info = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
               headers: { Authorization: `Bearer ${accessToken}` },
             });
             const userData = await info.json();
+            cachedDriveAuth = {
+              accessToken,
+              email: userData.email ?? 'unknown',
+              // Refresh one minute before token expiry
+              expiresAt: Date.now() + Math.max(60, expiresInSec - 60) * 1000,
+            };
             resolve({ accessToken, email: userData.email ?? 'unknown' });
           } catch {
+            cachedDriveAuth = {
+              accessToken,
+              email: 'unknown',
+              expiresAt: Date.now() + Math.max(60, expiresInSec - 60) * 1000,
+            };
             resolve({ accessToken, email: 'unknown' });
           }
         },
@@ -70,6 +101,13 @@ function getWebTokenAndEmail(): Promise<{ accessToken: string; email: string }> 
 
 // ── Shared: get token + email (native or web) ─────────────────────────────
 async function getTokenAndEmail(): Promise<{ accessToken: string; email: string }> {
+  if (hasValidCachedAuth()) {
+    return {
+      accessToken: cachedDriveAuth!.accessToken,
+      email: cachedDriveAuth!.email,
+    };
+  }
+
   const isNative = !!(window as any).Capacitor?.isNativePlatform?.();
   if (isNative) {
     const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
@@ -78,6 +116,12 @@ async function getTokenAndEmail(): Promise<{ accessToken: string; email: string 
     const accessToken = googleUser.authentication?.accessToken;
     const email = googleUser.email ?? 'unknown';
     if (!accessToken) throw new Error('Could not obtain Google access token');
+    cachedDriveAuth = {
+      accessToken,
+      email,
+      // Native plugin doesn't expose expiry reliably; keep short cache window.
+      expiresAt: Date.now() + 45 * 60 * 1000,
+    };
     return { accessToken, email };
   }
   return getWebTokenAndEmail();

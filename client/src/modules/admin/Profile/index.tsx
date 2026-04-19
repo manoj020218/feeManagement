@@ -10,8 +10,14 @@ import { todayISO } from '@/utils/dateHelpers';
 import PinInput from '@/modules/shared/PinInput';
 import MemberImportModal from '@/modules/admin/Members/MemberImportModal';
 import { exportMembers, downloadTemplate } from '@/core/services/excelService';
-import { exportInstBackup, parseInstBackup } from '@/core/services/jsonService';
+import { exportInstBackup } from '@/core/services/jsonService';
 import { performDriveBackup, listDriveBackups, downloadDriveFile, type DriveFile } from '@/core/services/driveService';
+import {
+  encryptBackupObject,
+  isEncryptedBackupEnvelope,
+  isPlainBackupShape,
+  normalizeBackupPayload,
+} from '@/core/services/encryptedBackupService';
 import type { PayQR, Institution } from '@/core/types';
 import QRCodeLib from 'qrcode';
 
@@ -165,6 +171,9 @@ function FeeRulesPanel({ inst, onUpdate }: { inst: Institution; onUpdate: (patch
 // ------------------------------------------------------------------
 interface DriveBackupStatus { email: string; at: string; }
 const DRV_KEY = (id: string) => `ff_drive_bk_${id}`;
+const DRV_SECRET_KEY = (id: string) => `ff_drive_secret_${id}`;
+const DRV_AUTO_READ_SYNC_KEY = (id: string) => `ff_drive_auto_sync_${id}`;
+const DRV_LAST_READ_SYNC_KEY = (id: string) => `ff_drive_last_sync_${id}`;
 
 function DataBackupPanel({
   inst,
@@ -185,6 +194,12 @@ function DataBackupPanel({
   const [driveStatus,    setDriveStatus]    = useState<DriveBackupStatus | null>(() => {
     try { return JSON.parse(localStorage.getItem(DRV_KEY(inst.id)) ?? 'null'); } catch { return null; }
   });
+  const [drivePassphrase, setDrivePassphrase] = useState(() => localStorage.getItem(DRV_SECRET_KEY(inst.id)) ?? '');
+  const [passphraseSet, setPassphraseSet] = useState<boolean>(() => (localStorage.getItem(DRV_SECRET_KEY(inst.id)) ?? '').trim().length >= 8);
+  const [rememberSecret, setRememberSecret] = useState<boolean>(() => !!localStorage.getItem(DRV_SECRET_KEY(inst.id)));
+  const [autoReadSync, setAutoReadSync] = useState<boolean>(() => localStorage.getItem(DRV_AUTO_READ_SYNC_KEY(inst.id)) === '1');
+  const [readSyncing, setReadSyncing] = useState(false);
+  const [lastReadSyncAt, setLastReadSyncAt] = useState<string | null>(() => localStorage.getItem(DRV_LAST_READ_SYNC_KEY(inst.id)));
   // Drive restore picker state
   const [pickerOpen,     setPickerOpen]     = useState(false);
   const [pickerLoading,  setPickerLoading]  = useState(false);
@@ -195,7 +210,7 @@ function DataBackupPanel({
   // Restore confirm modal
   type RestoreIntent =
     | { type: 'drive'; file: DriveFile }
-    | { type: 'json';  parsed: any; srcName: string };
+    | { type: 'json';  parsed: unknown; srcName: string; encrypted: boolean };
   const [restoreIntent,  setRestoreIntent]  = useState<RestoreIntent | null>(null);
   const [restoring,      setRestoring]      = useState(false);
 
@@ -205,8 +220,30 @@ function DataBackupPanel({
   // safety filename computed at the moment of showing the confirm modal
   const safetyFileName = `${inst.name.replace(/[^a-z0-9]/gi, '_')}_PRE_RESTORE_${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}.json`;
 
+  useEffect(() => {
+    try { setDriveStatus(JSON.parse(localStorage.getItem(DRV_KEY(inst.id)) ?? 'null')); } catch { setDriveStatus(null); }
+    const savedPassphrase = localStorage.getItem(DRV_SECRET_KEY(inst.id)) ?? '';
+    setDrivePassphrase(savedPassphrase);
+    setPassphraseSet(savedPassphrase.trim().length >= 8);
+    setRememberSecret(!!savedPassphrase);
+    setAutoReadSync(localStorage.getItem(DRV_AUTO_READ_SYNC_KEY(inst.id)) === '1');
+    setLastReadSyncAt(localStorage.getItem(DRV_LAST_READ_SYNC_KEY(inst.id)));
+  }, [inst.id]);
+
+  useEffect(() => {
+    if (rememberSecret && passphraseSet && drivePassphrase.trim().length >= 8) {
+      localStorage.setItem(DRV_SECRET_KEY(inst.id), drivePassphrase.trim());
+      return;
+    }
+    localStorage.removeItem(DRV_SECRET_KEY(inst.id));
+  }, [rememberSecret, passphraseSet, drivePassphrase, inst.id]);
+
+  useEffect(() => {
+    localStorage.setItem(DRV_AUTO_READ_SYNC_KEY(inst.id), autoReadSync ? '1' : '0');
+  }, [autoReadSync, inst.id]);
+
   // ── shared: apply a parsed backup object (merge strategy) ──────────────
-  function applyBackup(backup: any): string {
+  const applyBackup = useCallback((backup: any): string => {
     const raw = backup as { institution?: any; members?: any[]; transactions?: any[] };
     if (!raw.institution || !Array.isArray(raw.members) || !Array.isArray(raw.transactions)) {
       throw new Error('Invalid backup format');
@@ -227,19 +264,48 @@ function DataBackupPanel({
     if (newMembers.length) importMembersStore(existingInst.id, newMembers);
     newTxs.forEach((tx: any) => addTransaction(tx));
     return `Merged: +${newMembers.length} members, +${newTxs.length} transactions`;
+  }, [institutions, addInstitutionStore, importMembersStore, addTransaction]);
+
+  const resolveBackupPayload = useCallback(async (payload: unknown): Promise<any> => {
+    const pass = drivePassphrase.trim();
+    if (isEncryptedBackupEnvelope(payload) && (!passphraseSet || pass.length < 8)) {
+      throw new Error('Set passphrase first, then retry restore');
+    }
+    const normalized = await normalizeBackupPayload(payload, pass);
+    if (!isPlainBackupShape(normalized)) throw new Error('Invalid backup format');
+    return normalized;
+  }, [drivePassphrase, passphraseSet]);
+
+  function setPassphraseForSession() {
+    const pass = drivePassphrase.trim();
+    if (pass.length < 8) {
+      setPassphraseSet(false);
+      toast('Passphrase must be at least 8 characters', 'warn');
+      return;
+    }
+    setDrivePassphrase(pass);
+    setPassphraseSet(true);
+    toast('Passphrase set for this session', 'ok');
   }
 
   // ── backup to Drive ────────────────────────────────────────────────────
   async function handleDriveBackup() {
+    const passphrase = drivePassphrase.trim();
+    if (!passphraseSet || passphrase.length < 8) {
+      toast('Set passphrase first: type it and tap Set Passphrase', 'warn');
+      return;
+    }
+
     setDriveLoading(true);
     try {
-      const backup   = { version: 1, exportedAt: new Date().toISOString(), institution: inst, members, transactions };
-      const fileName = `FeeFlow_${inst.name.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
-      const result   = await performDriveBackup(backup, fileName);
+      const backup = { version: 1, exportedAt: new Date().toISOString(), institution: inst, members, transactions };
+      const encryptedBackup = await encryptBackupObject(backup, passphrase, { id: inst.id, inviteCode: inst.inviteCode });
+      const fileName = `FeeFlow_${inst.inviteCode}_${inst.name.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().slice(0, 10)}.ffenc.json`;
+      const result = await performDriveBackup(encryptedBackup, fileName);
       const status: DriveBackupStatus = { email: result.email, at: new Date().toISOString() };
       localStorage.setItem(DRV_KEY(inst.id), JSON.stringify(status));
       setDriveStatus(status);
-      toast('Backup uploaded to Google Drive ✓', 'ok');
+      toast('Encrypted backup uploaded to Google Drive', 'ok');
     } catch (err: any) {
       toast(err?.message ?? 'Drive backup failed', 'err');
     }
@@ -271,7 +337,8 @@ function DataBackupPanel({
     setPickerLoading(true);
     try {
       const { files, email, accessToken } = await listDriveBackups();
-      setPickerFiles(files);
+      const scoped = files.filter(f => f.name.startsWith(`FeeFlow_${inst.inviteCode}_`));
+      setPickerFiles(scoped.length ? scoped : files);
       setPickerEmail(email);
       setPickerToken(accessToken);
       setPickerOpen(true);
@@ -289,12 +356,59 @@ function DataBackupPanel({
   // ── stage JSON file for restore (validate first, then show modal) ───────
   async function stageRestoreFromJson(file: File) {
     try {
-      const parsed = await parseInstBackup(file);
-      setRestoreIntent({ type: 'json', parsed, srcName: file.name });
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (isEncryptedBackupEnvelope(parsed)) {
+        setRestoreIntent({ type: 'json', parsed, srcName: file.name, encrypted: true });
+        return;
+      }
+      if (!isPlainBackupShape(parsed)) throw new Error('Invalid backup format');
+      setRestoreIntent({ type: 'json', parsed, srcName: file.name, encrypted: false });
     } catch (err) {
       toast(typeof err === 'string' ? err : 'Invalid backup file', 'err');
     }
   }
+
+  const pullLatestDriveBackup = useCallback(async (silent = false) => {
+    const passphrase = drivePassphrase.trim();
+    if (!passphraseSet || passphrase.length < 8) {
+      if (!silent) toast('Set passphrase first: type it and tap Set Passphrase', 'warn');
+      return;
+    }
+
+    setReadSyncing(true);
+    try {
+      const { files, accessToken } = await listDriveBackups();
+      const scoped = files.filter(f => f.name.startsWith(`FeeFlow_${inst.inviteCode}_`));
+      const candidates = scoped.length ? scoped : files;
+      if (candidates.length === 0) {
+        if (!silent) toast('No Drive backups found for this institution', 'warn');
+        return;
+      }
+
+      const latest = [...candidates].sort(
+        (a, b) => new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime(),
+      )[0];
+      const content = await downloadDriveFile(latest.id, accessToken);
+      let payload: unknown;
+      try {
+        payload = JSON.parse(content);
+      } catch {
+        throw new Error('Latest Drive backup is not valid JSON');
+      }
+      const backup = await resolveBackupPayload(payload);
+      const message = applyBackup(backup);
+
+      const syncedAt = new Date().toISOString();
+      localStorage.setItem(DRV_LAST_READ_SYNC_KEY(inst.id), syncedAt);
+      setLastReadSyncAt(syncedAt);
+
+      if (!silent) toast(`Drive sync complete: ${message}`, 'ok');
+    } catch (err: any) {
+      if (!silent) toast(err?.message ?? 'Drive read sync failed', 'err');
+    } finally {
+      setReadSyncing(false);
+    }
+  }, [drivePassphrase, passphraseSet, toast, inst.inviteCode, inst.id, resolveBackupPayload, applyBackup]);
 
   // ── execute the staged restore (called from confirm modal) ──────────────
   async function executeRestore() {
@@ -305,18 +419,23 @@ function DataBackupPanel({
       autoBackupCurrent();
 
       // 2. Fetch / use already-parsed backup
-      let backup: any;
+      let backupRaw: unknown;
       if (restoreIntent.type === 'drive') {
         setRestoringId(restoreIntent.file.id);
         const content = await downloadDriveFile(restoreIntent.file.id, pickerToken);
-        backup = JSON.parse(content);
+        try {
+          backupRaw = JSON.parse(content);
+        } catch {
+          throw new Error('Selected Drive file is not valid JSON');
+        }
       } else {
-        backup = restoreIntent.parsed;
+        backupRaw = restoreIntent.parsed;
       }
+      const backup = await resolveBackupPayload(backupRaw);
 
       // 3. Merge into local data
       const msg = applyBackup(backup);
-      toast(`${msg} ✓`, 'ok');
+      toast(`${msg} (restore complete)`, 'ok');
       setRestoreIntent(null);
       setPickerOpen(false);
     } catch (err: any) {
@@ -325,6 +444,23 @@ function DataBackupPanel({
     setRestoringId(null);
     setRestoring(false);
   }
+
+  useEffect(() => {
+    if (!autoReadSync) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled) return;
+      await pullLatestDriveBackup(true);
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 180000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [autoReadSync, pullLatestDriveBackup]);
 
   // ── styles ─────────────────────────────────────────────────────────────
   const s: React.CSSProperties = {
@@ -352,16 +488,16 @@ function DataBackupPanel({
         {/* Excel */}
         <div style={sectionLabel}>Excel</div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button style={btnStyle} onClick={() => downloadTemplate(inst.name, t.plans, t.fees)}>↓ Template</button>
-          <button style={btnStyle} onClick={() => exportMembers(members, inst.name)}>↓ Export</button>
-          <button style={btnStyle} onClick={onImportMembers}>↑ Import</button>
+          <button style={btnStyle} onClick={() => downloadTemplate(inst.name, t.plans, t.fees)}>Template</button>
+          <button style={btnStyle} onClick={() => exportMembers(members, inst.name)}>Export</button>
+          <button style={btnStyle} onClick={onImportMembers}>Import</button>
         </div>
 
         {/* JSON */}
         <div style={sectionLabel}>JSON Backup</div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button style={btnStyle} onClick={() => exportInstBackup(inst, members, transactions)}>↓ Full Backup</button>
-          <button style={btnStyle} onClick={() => jsonRestoreRef.current?.click()}>↑ Restore JSON</button>
+          <button style={btnStyle} onClick={() => exportInstBackup(inst, members, transactions)}>Full Backup</button>
+          <button style={btnStyle} onClick={() => jsonRestoreRef.current?.click()}>Restore JSON</button>
           <input ref={jsonRestoreRef} type="file" accept=".json" style={{ display: 'none' }}
             onChange={async e => { const f = e.target.files?.[0]; if (f) await stageRestoreFromJson(f); e.target.value = ''; }}
           />
@@ -369,31 +505,101 @@ function DataBackupPanel({
 
         {/* Google Drive */}
         <div style={sectionLabel}>Google Drive</div>
+        <div style={{ marginBottom: 8 }}>
+          <input
+            value={drivePassphrase}
+            onChange={e => { setDrivePassphrase(e.target.value); setPassphraseSet(false); }}
+            placeholder="Encryption passphrase (min 8 chars)"
+            type="password"
+            style={{
+              width: '100%',
+              background: 'var(--s2)',
+              border: '1px solid var(--border)',
+              borderRadius: 7,
+              padding: '8px 10px',
+              color: 'var(--text)',
+              fontFamily: 'Outfit,sans-serif',
+              fontSize: '.78rem',
+              outline: 'none',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
+            <button
+              type="button"
+              onClick={setPassphraseForSession}
+              style={{
+                ...btnStyle,
+                flex: '0 0 auto',
+                padding: '6px 10px',
+                color: 'var(--accent)',
+                borderColor: 'rgba(79,142,255,.3)',
+              }}
+            >
+              Set Passphrase
+            </button>
+            <div style={{ fontSize: '.68rem', color: passphraseSet ? 'var(--green)' : 'var(--muted)' }}>
+              {passphraseSet ? 'Status: set' : 'Status: not set'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 6 }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: '.68rem', color: 'var(--muted)' }}>
+              <input
+                type="checkbox"
+                checked={rememberSecret}
+                onChange={e => setRememberSecret(e.target.checked)}
+              />
+              Remember on this device
+            </label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: '.68rem', color: 'var(--muted)' }}>
+              <input
+                type="checkbox"
+                checked={autoReadSync}
+                onChange={e => setAutoReadSync(e.target.checked)}
+              />
+              Auto read-sync (3 min)
+            </label>
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <button
             onClick={handleDriveBackup} disabled={driveLoading}
             style={{ ...btnStyle, color: driveLoading ? 'var(--muted)' : 'var(--accent)', borderColor: 'rgba(79,142,255,.3)' }}>
-            {driveLoading ? '⏳ Uploading…' : '☁ Backup'}
+            {driveLoading ? 'Uploading...' : 'Backup'}
           </button>
           <button
             onClick={openDrivePicker} disabled={pickerLoading}
             style={{ ...btnStyle, color: pickerLoading ? 'var(--muted)' : 'var(--green)', borderColor: 'rgba(52,199,89,.3)' }}>
-            {pickerLoading ? '⏳ Connecting…' : '↺ Restore'}
+            {pickerLoading ? 'Connecting...' : 'Restore'}
           </button>
         </div>
+
+        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+          <button
+            onClick={() => pullLatestDriveBackup(false)}
+            disabled={readSyncing}
+            style={{ ...btnStyle, color: readSyncing ? 'var(--muted)' : 'var(--yellow)', borderColor: 'rgba(255,200,0,.3)' }}
+          >
+            {readSyncing ? 'Syncing...' : 'Pull Latest'}
+          </button>
+        </div>
+        {lastReadSyncAt && (
+          <div style={{ fontSize: '.65rem', color: 'var(--muted)', marginBottom: 6 }}>
+            Last read-sync: {new Date(lastReadSyncAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </div>
+        )}
 
         {/* Last backup status */}
         {driveStatus ? (
           <div style={{ padding: '7px 10px', borderRadius: 7, background: 'rgba(52,199,89,.08)', border: '1px solid rgba(52,199,89,.2)' }}>
-            <div style={{ fontSize: '.68rem', color: 'var(--green)', fontWeight: 700, marginBottom: 2 }}>✓ Last backup successful</div>
+            <div style={{ fontSize: '.68rem', color: 'var(--green)', fontWeight: 700, marginBottom: 2 }}>Last backup successful</div>
             <div style={{ fontSize: '.65rem', color: 'var(--muted)', lineHeight: 1.6 }}>
-              📧 {driveStatus.email}<br/>
-              🕐 {new Date(driveStatus.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              Email: {driveStatus.email}<br/>
+              Time: {new Date(driveStatus.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </div>
           </div>
         ) : (
           <div style={{ fontSize: '.65rem', color: 'var(--muted)' }}>
-            No backup yet · files saved to your Google Drive root
+            No backup yet - files saved to your Google Drive root
           </div>
         )}
       </div>
@@ -412,11 +618,24 @@ function DataBackupPanel({
                 {restoreIntent.type === 'drive' ? restoreIntent.file.name : restoreIntent.srcName}
               </strong>
             </div>
+            {(restoreIntent.type === 'drive' ? true : restoreIntent.encrypted) && (
+              <div style={{
+                fontSize: '.73rem',
+                color: drivePassphrase.trim().length >= 8 ? 'var(--green)' : 'var(--yellow)',
+                background: 'rgba(255,200,0,.08)',
+                border: '1px solid rgba(255,200,0,.2)',
+                borderRadius: 8,
+                padding: '8px 10px',
+                marginBottom: 10,
+              }}>
+                Drive restore may require the same passphrase used during backup.
+              </div>
+            )}
 
             {/* Safety backup notice */}
             <div style={{ borderRadius: 9, background: 'rgba(79,142,255,.07)', border: '1px solid rgba(79,142,255,.2)', padding: '12px 14px', marginBottom: 14 }}>
               <div style={{ fontWeight: 800, fontSize: '.78rem', color: 'var(--accent)', marginBottom: 6 }}>
-                📥 We will first download your current data
+                We will first download your current data
               </div>
               <div style={{ fontSize: '.74rem', color: 'var(--muted)', lineHeight: 1.65 }}>
                 Before restoring, your existing data will be automatically saved to your device as:
@@ -425,20 +644,23 @@ function DataBackupPanel({
                 {safetyFileName}
               </div>
               <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginTop: 6 }}>
-                Save this file safely — it is your rollback point.
+                Save this file safely - it is your rollback point.
               </div>
             </div>
 
             {/* How to recover */}
             <div style={{ borderRadius: 9, background: 'rgba(255,200,0,.06)', border: '1px solid rgba(255,200,0,.2)', padding: '12px 14px', marginBottom: 16 }}>
-              <div style={{ fontWeight: 800, fontSize: '.78rem', color: 'var(--yellow)', marginBottom: 8 }}>
+              <div style={{ fontWeight: 800, fontSize: '.78rem', color: 'var(--yellow)', marginBottom: 8, display: 'none' }}>
                 🔄 How to go back to your existing data if needed
               </div>
+              <div style={{ fontWeight: 800, fontSize: '.78rem', color: 'var(--yellow)', marginBottom: 8 }}>
+                How to recover your previous data if needed
+              </div>
               {[
-                'Open Admin Profile → tap the institution',
-                'Tap the ⋯ menu → choose "Data & Backup"',
-                'Under JSON Backup, tap "↑ Restore JSON"',
-                `Select the file named "${safetyFileName.slice(0, 30)}…"`,
+                'Open Admin Profile, then tap the institution',
+                'Open the menu and choose "Data & Backup"',
+                'Under JSON Backup, tap "Restore JSON"',
+                `Select the file named "${safetyFileName.slice(0, 30)}..."`,
                 'Your previous data will be merged back instantly',
               ].map((step, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 5, alignItems: 'flex-start' }}>
@@ -455,7 +677,7 @@ function DataBackupPanel({
                 Cancel
               </button>
               <button className="btn p" onClick={executeRestore} disabled={restoring}>
-                {restoring ? '⏳ Restoring…' : '✓ Download Safety Backup & Restore'}
+                {restoring ? 'Restoring...' : 'Download Safety Backup & Restore'}
               </button>
             </div>
           </div>
@@ -489,13 +711,13 @@ function DataBackupPanel({
                       display: 'flex', alignItems: 'center', gap: 10,
                       padding: '10px 0', borderBottom: '1px solid var(--border)',
                     }}>
-                      <div style={{ fontSize: '1.4rem', flexShrink: 0 }}>📄</div>
+                      <div style={{ fontSize: '.65rem', flexShrink: 0, color: 'var(--muted)', fontWeight: 700 }}>FILE</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: '.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {f.name}
                         </div>
                         <div style={{ fontSize: '.68rem', color: 'var(--muted)', marginTop: 2 }}>
-                          {date}{sizeKB ? ` · ${sizeKB}` : ''}
+                          {date}{sizeKB ? ` - ${sizeKB}` : ''}
                         </div>
                       </div>
                       <button
@@ -507,7 +729,7 @@ function DataBackupPanel({
                           fontSize: '.72rem', fontWeight: 700, cursor: restoringId ? 'default' : 'pointer',
                           fontFamily: 'Outfit,sans-serif', flexShrink: 0, opacity: restoringId && !isRestoring ? 0.5 : 1,
                         }}>
-                        {isRestoring ? '⏳…' : '↺ Restore'}
+                        {isRestoring ? '...' : 'Restore'}
                       </button>
                     </div>
                   );
